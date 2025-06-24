@@ -34,24 +34,89 @@ from subprocess import run
 from bs4 import BeautifulSoup
 
 GUILD_ID = 1084051938011795516
-GUILD_ID = 1032196153325912125
+#GUILD_ID = 1032196153325912125
 
 authorized_list = [789784662246817792, 871373790750330930, 640139773192830977, 841634026337861653]
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
 
-lock = asyncio.Lock()
+# キューシステム用のグローバル変数
+download_queue = asyncio.Queue()
+is_processing = False
+queue_processor_task = None
 
 class Get_Command(commands.Cog):
     def __init__(self, bot:commands.Bot):
         self.bot = bot
+        self.current_modal = None
 
     @commands.Cog.listener()
     async def on_ready(self):
         await self.bot.tree.sync(guild=discord.Object(id=GUILD_ID))
         print('sync')
+        
+        # キュープロセッサーを開始
+        await self.start_queue_processor()
 
         await self.bot.change_presence(activity=discord.Game(name=''))
+
+    async def start_queue_processor(self):
+        """キュープロセッサーを開始する"""
+        global queue_processor_task
+        if queue_processor_task is None or queue_processor_task.done():
+            queue_processor_task = asyncio.create_task(self.process_download_queue())
+            print("Queue processor started")
+
+    async def process_download_queue(self):
+        """キューからダウンロードタスクを順番に処理する"""
+        global is_processing
+        while True:
+            try:
+                # キューから次のタスクを取得
+                modal_data = await download_queue.get()
+                
+                if modal_data is None:  # 終了シグナル
+                    break
+                
+                is_processing = True
+                
+                # modalのインスタンスを作成して実行
+                modal = OptionModal(
+                    bot=modal_data['bot'],
+                    zipfile=modal_data['zipfile'],
+                    codec=modal_data['codec'],
+                    extension=modal_data['extension'],
+                    resolution=modal_data['resolution'],
+                    thumbnail=modal_data['thumbnail'],
+                    metadata=modal_data['metadata'],
+                    options=modal_data['options'],
+                    txt_content=modal_data['txt_content']
+                )                
+                self.current_modal = modal
+                
+                try:
+                    await modal.main_without_interaction(
+                        user=modal_data['user'],
+                        channel=modal_data['channel'],
+                        guild=modal_data['guild']
+                    )
+                except Exception as e:
+                    print(f"Error processing download: {e}")
+                    traceback.print_exc()
+                finally:
+                    self.current_modal = None
+                    is_processing = False
+                    download_queue.task_done()
+                    
+            except Exception as e:
+                print(f"Error in queue processor: {e}")
+                is_processing = False
+
+    async def add_to_queue(self, modal_data):
+        """ダウンロードタスクをキューに追加"""
+        queue_size = download_queue.qsize()
+        await download_queue.put(modal_data)
+        return queue_size + 1  # キューの位置を返す
 
     @app_commands.command(name = 'dl', description = '動画ダウンロード')
     @app_commands.guilds(GUILD_ID)
@@ -93,15 +158,38 @@ class Get_Command(commands.Cog):
             try:                # TXTファイルの内容を読み取り
                 file_content = await txtfile.read()
                 url_content = file_content.decode('utf-8')
-                
-                # レスポンスを遅延
+                  # レスポンスを遅延
                 await interaction.response.defer()
-                
-                # OptionModalのインスタンスを作成し、直接実行
-                self.modal = OptionModal(bot=self.bot, zipfile=zipfile, codec=codec, extension=extension, resolution=resolution, thumbnail=thumbnail, metadata=metadata, options=options, txt_content=url_content)
-                  # modalのmainメソッドを直接呼び出し
-                await self.modal.main(interaction)
-                
+                  # キューに追加
+                modal_data = {
+                    'bot': self.bot,
+                    'zipfile': zipfile,
+                    'codec': codec,
+                    'extension': extension,
+                    'resolution': resolution,
+                    'thumbnail': thumbnail,
+                    'metadata': metadata,
+                    'options': options,
+                    'txt_content': url_content,
+                    'user': interaction.user,
+                    'channel': interaction.channel,
+                    'guild': interaction.guild
+                }
+                queue_position = await self.add_to_queue(modal_data)
+
+                if is_processing:
+                    embed = discord.Embed(
+                        description = f'ダウンロードキューに追加されました。順番: {queue_position}番目\n現在処理中のタスクが完了次第開始されます。',
+                        color=discord.Color.blue()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                else:
+                    embed = discord.Embed(
+                        description = 'ダウンロードを開始します...',
+                        color=discord.Color.green()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+
             except Exception as e:
                 embed = discord.Embed(
                     description = f'TXTファイルの読み込み中にエラーが発生しました: {str(e)}',
@@ -111,14 +199,25 @@ class Get_Command(commands.Cog):
                 return
         else:
             # TXTファイルが添付されていない場合は通常のmodal表示
-            self.modal = OptionModal(bot=self.bot, zipfile=zipfile, codec=codec, extension=extension, resolution=resolution, thumbnail=thumbnail, metadata=metadata, options=options, txt_content=None)
-            await interaction.response.send_modal(self.modal)
+            modal = OptionModal(bot=self.bot, zipfile=zipfile, codec=codec, extension=extension, resolution=resolution, thumbnail=thumbnail, metadata=metadata, options=options, txt_content=None)
+
+            # modalにqueueシステムへの参照を渡す
+            modal.get_command_cog = self
+
+            await interaction.response.send_modal(modal)
 
     @app_commands.command(name = 'progress', description = '進捗を再送信')
     @app_commands.guilds(GUILD_ID)
     @app_commands.describe()
     async def progress_send(self, interaction: discord.Interaction,) -> Callable[[discord.Interaction], Awaitable[None]]:
-        await self.modal.progress_send(interaction)
+        if self.current_modal:
+            await self.current_modal.progress_send(interaction)
+        else:
+            embed = discord.Embed(
+                description = '現在実行中のダウンロードタスクがありません。',
+                color=discord.Color.red()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name = 'stop', description = 'ダウンロードを停止(botの再起動)')
     @app_commands.guilds(GUILD_ID)
@@ -137,30 +236,29 @@ class Get_Command(commands.Cog):
     @app_commands.guilds(GUILD_ID)
     @app_commands.describe()
     async def upgrade(self, interaction: discord.Interaction,) -> Callable[[discord.Interaction], Awaitable[None]]:
-        async with lock:
-            author_id = interaction.user.id
+        author_id = interaction.user.id
+        
+        if author_id in authorized_list:
+            await self.bot.change_presence(activity=discord.Game(name='Upgrade'))
 
-            if author_id in authorized_list:
-                await self.bot.change_presence(activity=discord.Game(name='Upgrade'))
+            embed = discord.Embed(description = f'Upgrading yt-dlp',)
+            await  interaction.response.send_message(embed=embed)
 
-                embed = discord.Embed(description = f'Upgrading yt-dlp',)
-                await  interaction.response.send_message(embed=embed)
+            try:
+                subprocess.run(['python', '-m', 'pip', 'install', '--upgrade', 'yt-dlp'])
 
-                try:
-                    subprocess.run(['python', '-m', 'pip', 'install', '--upgrade', 'yt-dlp'])
+                embed = discord.Embed(description = 'Upgrade completed successfully')
+                await  interaction.channel.send(embed=embed,file=None)
 
-                    embed = discord.Embed(description = 'Upgrade completed successfully')
-                    await  interaction.channel.send(embed=embed,file=None)
+            except subprocess.CalledProcessError as e:
+                embed = discord.Embed(description = f'Upgrade has failed\n{e}')
+                await  interaction.channel.send(embed=embed,file=None)
 
-                except subprocess.CalledProcessError as e:
-                    embed = discord.Embed(description = f'Upgrade has failed\n{e}')
-                    await  interaction.channel.send(embed=embed,file=None)
+            await self.bot.change_presence(activity=discord.Game(name=''))
 
-                await self.bot.change_presence(activity=discord.Game(name=''))
-
-            else:
-                embed = discord.Embed(description = f'Who the hell are you? Go home:middle_finger:')
-                await  interaction.response.send_message(embed=embed)
+        else:
+            embed = discord.Embed(description = f'Who the hell are you? Go home:middle_finger:')
+            await  interaction.response.send_message(embed=embed)
 
 class OptionModal(discord.ui.Modal):
     def __init__(self, bot: commands.Bot, zipfile: bool = True, extension: str = 'mp3', codec: str = 'default', resolution: str = 'best', thumbnail: bool = True, metadata: bool = True, options: str = '', txt_content: str = None) -> None:
@@ -202,16 +300,36 @@ class OptionModal(discord.ui.Modal):
             # TXTファイルからの内容をMockオブジェクトとして設定
             self.url_input = type('MockInput', (), {'value': self.txt_content})()
 
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        self.run = True
-        self.time = time.time()
-        self.embed_color = discord.Color.dark_theme()
-        self.progress_content = ''
-        self.author_name = interaction.user.display_name
-        self.author_url = interaction.user.avatar.url
-        self.author = interaction.user        #tasks = [self.edit_message(), self.main(interaction)]
-        #await asyncio.gather(*tasks)
-        await self.main(interaction)
+    async def on_submit(self, interaction: discord.Interaction) -> None:        # キューに追加
+        modal_data = {
+            'bot': self.bot,
+            'zipfile': self.zipfile,
+            'codec': self.codec,
+            'extension': self.extension,
+            'resolution': self.resolution,
+            'thumbnail': self.thumbnail,
+            'metadata': self.metadata,
+            'options': ','.join(self.options),
+            'txt_content': self.url_input.value,
+            'user': interaction.user,
+            'channel': interaction.channel,
+            'guild': interaction.guild
+        }
+        
+        queue_position = await self.get_command_cog.add_to_queue(modal_data)
+        
+        if is_processing:
+            embed = discord.Embed(
+                description = f'ダウンロードキューに追加されました。順番: {queue_position}番目\n現在処理中のタスクが完了次第開始されます。',
+                color=discord.Color.blue()
+            )
+            await interaction.response.send_message(embed=embed)
+        else:
+            embed = discord.Embed(
+                description = 'ダウンロードを開始します...',
+                color=discord.Color.green()
+            )
+            await interaction.response.send_message(embed=embed)
 
     async def main(self, interaction: discord.Interaction) -> Callable[[discord.Interaction], Awaitable[None]]:
         # TXTファイルから直接呼び出された場合の初期化処理
@@ -224,66 +342,81 @@ class OptionModal(discord.ui.Modal):
             self.author_url = interaction.user.avatar.url
             self.author = interaction.user
         
-        #同時に1つしか実行できないようにする
-        async with lock:
-            if ('dm' in self.options) and (interaction.user.id not in authorized_list):
-                now = datetime.now(timezone(timedelta(hours=9)))
-                unix_timestamp = int(datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=now.tzinfo).timestamp())
-                today = int(datetime.now().strftime('%Y%m%d'))
-                password = ((unix_timestamp+1)*today % 982451653)%10000
-                if str(password) not in self.options:
-                    self.options = []
+        #同時に1つしか実行できないようにする（キューシステムで管理）
+        if ('dm' in self.options) and (interaction.user.id not in authorized_list):
+            now = datetime.now(timezone(timedelta(hours=9)))
+            unix_timestamp = int(datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=now.tzinfo).timestamp())
+            today = int(datetime.now().strftime('%Y%m%d'))
+            password = ((unix_timestamp+1)*today % 982451653)%10000
+            if str(password) not in self.options:
+                self.options = []
 
-            self.status_content = '[loading url]'
-            await interaction.response.defer()
+        self.status_content = '[loading url]'
+        
+        # インタラクションが既にレスポンス済みでない場合のみdeferする
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.defer()
+        except discord.errors.HTTPException as e:
+            if e.code != 40060:  # 40060 = Interaction has already been acknowledged
+                raise
+            # 既に確認済みの場合は無視
+            pass
+        
+        self.channel = self.bot.get_channel(interaction.channel.id)
 
-            self.channel = self.bot.get_channel(interaction.channel.id)
+        embed = discord.Embed(
+            title = '[initializing]',
+            description = '',
+            color = self.embed_color,
+            )
+        embed.set_author(name=self.author_name, icon_url=self.author_url)
 
+        if 'dm' in self.options:
+            self.msg = await self.author.send(embed=embed,file=None)
+        else:
+            # レスポンス済みの場合はfollowupを使用、そうでなければ通常のチャンネル送信
+            try:
+                if interaction.response.is_done():
+                    self.msg = await interaction.followup.send(embed=embed, wait=True)
+                else:
+                    self.msg = await interaction.channel.send(embed=embed,file=None)
+            except discord.errors.HTTPException as e:
+                # インタラクションに問題がある場合は通常のチャンネル送信にフォールバック
+                self.msg = await self.channel.send(embed=embed,file=None)
+        self.edit_message.start()
+
+        #self.msg = await interaction.followup.send(content='[initializing]', wait=True, ephemeral=self.ephemeral)
+
+        if 'local' in self.options:
+            temp_path = 'H:/'
+        else:
+            temp_path = os.path.join(parent_dir, 'YTD_temp')
+            self.delete_folder(temp_path)
+
+            uploads_dir = os.path.join(temp_path, 'uploads')
+            os.makedirs(uploads_dir)
+
+        self.input_url_list = self.url_input.value.split()
+        url_list, self.num = self.get_urllist(self.input_url_list)
+
+        if self.num > self.max_downloads:
             embed = discord.Embed(
-                title = '[initializing]',
-                description = '',
-                color = self.embed_color,
+                description = f'The maximum number of files that can be downloaded at one time is {self.max_downloads}.',
                 )
-            embed.set_author(name=self.author_name, icon_url=self.author_url)
+            await self.channel.send(embed=embed)
 
-            if 'dm' in self.options:
-                self.msg = await self.author.send(embed=embed,file=None)
-            else:
-                self.msg = await interaction.channel.send(embed=embed,file=None)
-            self.edit_message.start()
+            self.run = False
+            self.edit_message.stop()
+            return
 
-            #self.msg = await interaction.followup.send(content='[initializing]', wait=True, ephemeral=self.ephemeral)
+        if len(url_list) == 0:
+            #await self.msg.edit(content='Invalid url error')
+            return
+        print(url_list)
 
-            if 'local' in self.options:
-                temp_path = 'H:/'
-            else:
-                temp_path = os.path.join(parent_dir, 'YTD_temp')
-                self.delete_folder(temp_path)
-
-                uploads_dir = os.path.join(temp_path, 'uploads')
-                os.makedirs(uploads_dir)
-
-
-            self.input_url_list = self.url_input.value.split()
-            url_list, self.num = self.get_urllist(self.input_url_list)
-
-            if self.num > self.max_downloads:
-                embed = discord.Embed(
-                    description = f'The maximum number of files that can be downloaded at one time is {self.max_downloads}.',
-                    )
-                await self.channel.send(embed=embed)
-
-                self.run = False
-                self.edit_message.stop()
-                return
-
-            if len(url_list) == 0:
-                #await self.msg.edit(content='Invalid url error')
-                return
-            print(url_list)
-
-            self.cnt = 1
-            for item in url_list:
+        self.cnt = 1
+        for item in url_list:
                 self.status_content = '[downloading]'
                 self.embed_color = discord.Color.brand_red()
                 if type(item) is tuple:
@@ -329,27 +462,158 @@ class OptionModal(discord.ui.Modal):
                     if 'local' not in self.options:
                         self.delete_folder(downloads_dir)
 
-            if self.zipfile == True:
-                self.num = 1; self.cnt = 1
-                self.status_content = '[making zip]'
-                self.embed_color = discord.Color.yellow()
-                await asyncio.to_thread(shutil.make_archive, uploads_dir, 'zip', uploads_dir)
-                self.status_content = '[uploading] 1/1'
-                self.embed_color = discord.Color.teal()
-                uploadzip_dir = os.path.join(temp_path, 'uploads.zip')
-                await self.upload_file(uploadzip_dir, self.input_url_list)
+        if self.zipfile == True:
+            self.num = 1; self.cnt = 1
+            self.status_content = '[making zip]'
+            self.embed_color = discord.Color.yellow()
+            await asyncio.to_thread(shutil.make_archive, uploads_dir, 'zip', uploads_dir)
+            self.status_content = '[uploading] 1/1'
+            self.embed_color = discord.Color.teal()
+            uploadzip_dir = os.path.join(temp_path, 'uploads.zip')
+            await self.upload_file(uploadzip_dir, self.input_url_list)
 
+        self.delete_folder(temp_path)
+        self.status_content = '[finished]'
+        self.embed_color = discord.Color.brand_green()
+
+        await asyncio.sleep(1)
+
+        self.run = False
+        self.edit_message.stop()
+        #await self.msg.delete()
+        print('finished')
+        await self.bot.change_presence(activity=discord.Game(name=''))
+
+    async def main_without_interaction(self, user, channel, guild):
+        """インタラクションを使わずにダウンロード処理を実行"""
+        # 初期化処理
+        self.run = True
+        self.time = time.time()
+        self.embed_color = discord.Color.dark_theme()
+        self.progress_content = ''
+        self.author_name = user.display_name
+        self.author_url = user.avatar.url if user.avatar else user.default_avatar.url
+        self.author = user
+        
+        # パスワードチェック（必要に応じて）
+        if ('dm' in self.options) and (user.id not in authorized_list):
+            now = datetime.now(timezone(timedelta(hours=9)))
+            unix_timestamp = int(datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=now.tzinfo).timestamp())
+            today = int(datetime.now().strftime('%Y%m%d'))
+            password = ((unix_timestamp+1)*today % 982451653)%10000
+            if str(password) not in self.options:
+                self.options = []
+
+        self.status_content = '[loading url]'
+        self.channel = channel
+
+        embed = discord.Embed(
+            title = '[initializing]',
+            description = '',
+            color = self.embed_color,
+        )
+        embed.set_author(name=self.author_name, icon_url=self.author_url)
+
+        if 'dm' in self.options:
+            self.msg = await self.author.send(embed=embed,file=None)
+        else:
+            self.msg = await channel.send(embed=embed,file=None)
+        
+        self.edit_message.start()
+
+        if 'local' in self.options:
+            temp_path = 'H:/'
+        else:
+            temp_path = os.path.join(parent_dir, 'YTD_temp')
             self.delete_folder(temp_path)
-            self.status_content = '[finished]'
-            self.embed_color = discord.Color.brand_green()
+            
+            uploads_dir = os.path.join(temp_path, 'uploads')
+            os.makedirs(uploads_dir)
+            
+        self.input_url_list = self.url_input.value.split()
+        url_list, self.num = self.get_urllist(self.input_url_list)
 
-            await asyncio.sleep(1)
+        if self.num > self.max_downloads:
+            embed = discord.Embed(
+                description = f'The maximum number of files that can be downloaded at one time is {self.max_downloads}.',
+            )
+            await self.channel.send(embed=embed)
 
             self.run = False
             self.edit_message.stop()
-            #await self.msg.delete()
-            print('finished')
-            await self.bot.change_presence(activity=discord.Game(name=''))
+            return
+
+        if len(url_list) == 0:
+            return
+        print(url_list)
+        
+        self.cnt = 1
+        for item in url_list:
+                self.status_content = '[downloading]'
+                self.embed_color = discord.Color.brand_red()
+                if type(item) is tuple:
+                    downloads_dir = os.path.join(temp_path, item[1])
+                    for url in item[0]:
+                        try:
+                            await asyncio.to_thread(self.download, downloads_dir, url, self.extension, self.resolution, self.thumbnail, self.metadata,)
+                        except Exception:
+                            traceback.print_exc()
+                        self.cnt += 1
+                    self.cnt -= 1
+                    self.status_content = '[making zip]'
+                    self.embed_color = discord.Color.yellow()
+
+                    if self.zipfile == False:
+                        self.status_content = f'[uploading] {self.cnt}/{self.num} : {item[1]}'
+                        self.embed_color = discord.Color.teal()
+                        await self.upload_file(downloads_dir, item)
+                    else:
+                        shutil.move(downloads_dir, uploads_dir)
+                    self.delete_folder(downloads_dir)
+                    self.cnt += 1
+
+                elif type(item) is str:
+                    downloads_dir = os.path.join(temp_path, 'downloads')
+                    try:
+                        await asyncio.to_thread(self.download, downloads_dir, item, self.extension, self.resolution, self.thumbnail, self.metadata)
+                    except Exception as e:
+                        print(e)
+                    download_path = os.path.join(downloads_dir, os.listdir(downloads_dir)[0])
+
+                    if self.zipfile == False:
+                        self.status_content = f'[uploading] {self.cnt}/{self.num} : {os.listdir(downloads_dir)[0]}'
+                        self.embed_color = discord.Color.teal()
+                        #self.progress_content = ''
+                        await self.upload_file(download_path, item)
+                    else:
+                        if 'local' not in self.options:
+                            shutil.move(download_path, uploads_dir)
+
+
+                    self.cnt += 1
+                    if 'local' not in self.options:
+                        self.delete_folder(downloads_dir)
+
+        if self.zipfile == True:
+            self.num = 1; self.cnt = 1
+            self.status_content = '[making zip]'
+            self.embed_color = discord.Color.yellow()
+            await asyncio.to_thread(shutil.make_archive, uploads_dir, 'zip', uploads_dir)
+            self.status_content = '[uploading] 1/1'
+            self.embed_color = discord.Color.teal()
+            uploadzip_dir = os.path.join(temp_path, 'uploads.zip')
+            await self.upload_file(uploadzip_dir, self.input_url_list)
+
+        self.delete_folder(temp_path)
+        self.status_content = '[finished]'
+        self.embed_color = discord.Color.brand_green()
+
+        await asyncio.sleep(1)
+
+        self.run = False
+        self.edit_message.stop()
+        print('finished')
+        await self.bot.change_presence(activity=discord.Game(name=''))
 
     def delete_folder(self, folder: str) -> None:
         if os.path.isdir(folder):
@@ -472,6 +736,10 @@ class OptionModal(discord.ui.Modal):
         print('uploading now')
 
         gigafile_url = await self.upload_to_gigafile(path)
+
+        # Truncate the message if it exceeds Discord's character limit (2000 characters)
+        if len(message) > 2000:
+            message = message[:1997] + '...'
 
         if 'dm' in self.options:
             await self.author.send(content=f'<{gigafile_url}>\n{message}')
@@ -618,7 +886,7 @@ class OptionModal(discord.ui.Modal):
                 options = {
                     'writethumbnail': thumbnail,
                     'outtmpl': os.path.join(path, '%(title)s.%(ext)s'),
-                    'format': f'bv*[ext={extension}]+ba[ext=m4a]/b[ext={extension}] -S vcodec:h264' if resolution == 'best' else f'wv*[ext={extension}]+wa[ext=m4a]/w[ext={extension}]' if resolution == 'worst' else f'bv[ext={extension}][height<={resolution}]+ba[ext=m4a]/best',
+                    'format': f'bv*[ext={extension}]+ba[ext=m4a]/b[ext={extension}]' if resolution == 'best' else f'wv*[ext={extension}]+wa[ext=m4a]/w[ext={extension}]' if resolution == 'worst' else f'bv[ext={extension}][height<={resolution}]+ba[ext=m4a]/best',
                     'http_headers': {'Accept-Language': 'ja-JP'},
                     'progress_hooks': [self.my_hook],
                     'live_from_start': True,
