@@ -990,7 +990,8 @@ class OptionModal(discord.ui.Modal):
             self.progress_content = f'{percent} of {downloaded_Mbytes}/{total_Mbytes} MiB at  {speed}MiB/s  ETA {eta}'
 
         except Exception as e:
-            print('\n',e)
+            self.status_content = f'[downloading] {self.cnt}/{self.num}'
+            #print('\n',e)
 
     def remove_color_codes(self, input_string: str) -> str:
         color_pattern = re.compile(r'\x1b\[[0-9;]*m')
