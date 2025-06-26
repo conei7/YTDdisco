@@ -34,7 +34,7 @@ from subprocess import run
 from bs4 import BeautifulSoup
 
 GUILD_ID = 1084051938011795516
-#GUILD_ID = 1032196153325912125
+GUILD_ID = 1032196153325912125
 
 authorized_list = [789784662246817792, 871373790750330930, 640139773192830977, 841634026337861653]
 
@@ -245,7 +245,7 @@ class Get_Command(commands.Cog):
             await  interaction.response.send_message(embed=embed)
 
             try:
-                subprocess.run(['python', '-m', 'pip', 'install', '--upgrade', 'yt-dlp'])
+                await subprocess.run(['python', '-m', 'pip', 'install', '--upgrade', 'yt-dlp'])
 
                 embed = discord.Embed(description = 'Upgrade completed successfully')
                 await  interaction.channel.send(embed=embed,file=None)
@@ -700,7 +700,7 @@ class OptionModal(discord.ui.Modal):
         except Exception as e:
             print(f"Manual deletion failed: {e}")
 
-    @tasks.loop(seconds=1)
+    @tasks.loop(seconds=10)
     async def edit_message(self):
         t = int(time.time() - self.time)
         embed = discord.Embed(
