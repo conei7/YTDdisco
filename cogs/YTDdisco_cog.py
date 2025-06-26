@@ -329,7 +329,7 @@ class OptionModal(discord.ui.Modal):
                 description = 'ダウンロードを開始します...',
                 color=discord.Color.green()
             )
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
     async def main(self, interaction: discord.Interaction) -> Callable[[discord.Interaction], Awaitable[None]]:
         # TXTファイルから直接呼び出された場合の初期化処理
