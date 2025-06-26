@@ -107,7 +107,7 @@ class Get_Command(commands.Cog):
                     self.current_modal = None
                     is_processing = False
                     download_queue.task_done()
-                    
+
             except Exception as e:
                 print(f"Error in queue processor: {e}")
                 is_processing = False
@@ -154,7 +154,7 @@ class Get_Command(commands.Cog):
                 )
                 await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
-            
+
             try:                # TXTファイルの内容を読み取り
                 file_content = await txtfile.read()
                 url_content = file_content.decode('utf-8')
@@ -179,15 +179,17 @@ class Get_Command(commands.Cog):
 
                 if is_processing:
                     embed = discord.Embed(
-                        description = f'ダウンロードキューに追加されました。順番: {queue_position}番目\n現在処理中のタスクが完了次第開始されます。',
+                        description=f'ダウンロードキューに追加されました。順番: {queue_position}番目\n現在処理中のタスクが完了次第開始されます。',
                         color=discord.Color.blue()
                     )
+                    await interaction.response.defer()  # 応答を遅延
                     await interaction.followup.send(embed=embed, ephemeral=True)
                 else:
                     embed = discord.Embed(
-                        description = 'ダウンロードを開始します...',
+                        description='ダウンロードを開始します...',
                         color=discord.Color.green()
                     )
+                    await interaction.response.defer()  # 応答を遅延
                     await interaction.followup.send(embed=embed, ephemeral=True)
 
             except Exception as e:
@@ -320,13 +322,13 @@ class OptionModal(discord.ui.Modal):
         
         if is_processing:
             embed = discord.Embed(
-                description = f'ダウンロードキューに追加されました。順番: {queue_position}番目\n現在処理中のタスクが完了次第開始されます。',
+                description=f'ダウンロードキューに追加されました。順番: {queue_position}番目\n現在処理中のタスクが完了次第開始されます。',
                 color=discord.Color.blue()
             )
             await interaction.response.send_message(embed=embed)
         else:
             embed = discord.Embed(
-                description = 'ダウンロードを開始します...',
+                description='ダウンロードを開始します...',
                 color=discord.Color.green()
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -872,6 +874,8 @@ class OptionModal(discord.ui.Modal):
         return url_list, cnt
 
     def download(self, path: str , url: str, extension: str, resolution: str, thumbnail: str, metadata: str) -> None:
+        self.status_content = f'[downloading] {self.cnt}/{self.num}'
+
         if 'gigafile.nu' in url:
             gigafile = Giga(self, url)
             dl_path = gigafile.download(path)
