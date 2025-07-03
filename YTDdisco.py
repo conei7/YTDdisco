@@ -290,7 +290,7 @@ class OptionModal(discord.ui.Modal):
             # TXTファイルからの内容をMockオブジェクトとして設定
             self.url_input = type('MockInput', (), {'value': self.txt_content})()
 
-    async def on_submit(self, interaction: discord.Interaction) -> None:        # キューに追加
+    async def on_submit(self, interaction: discord.Interaction) -> None:
         modal_data = {
             'bot': self.bot,
             'zipfile': self.zipfile,
