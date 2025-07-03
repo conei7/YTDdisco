@@ -88,12 +88,12 @@ class Main(commands.Cog):
             try:
                 # キューから次のタスクを取得
                 modal_data = await download_queue.get()
-                
+
                 if modal_data is None:  # 終了シグナル
                     break
-                
+
                 is_processing = True
-                
+
                 # modalのインスタンスを作成して実行
                 modal = OptionModal(
                     bot=modal_data['bot'],
@@ -105,9 +105,9 @@ class Main(commands.Cog):
                     metadata=modal_data['metadata'],
                     options=modal_data['options'],
                     txt_content=modal_data['txt_content']
-                )                
+                )
                 self.current_modal = modal
-                
+
                 try:
                     await modal.main_without_interaction(
                         user=modal_data['user'],
@@ -303,9 +303,9 @@ class OptionModal(discord.ui.Modal):
             'channel': interaction.channel,
             'guild': interaction.guild
         }
-        
+
         queue_position = await self.get_command_cog.add_to_queue(modal_data)
-        
+
         if is_processing:
             embed = discord.Embed(
                 description=f'ダウンロードキューに追加されました。順番: {queue_position}番目\n現在処理中のタスクが完了次第開始されます。',
@@ -329,7 +329,7 @@ class OptionModal(discord.ui.Modal):
             self.author_name = interaction.user.display_name
             self.author_url = interaction.user.avatar.url
             self.author = interaction.user
-        
+    
         #同時に1つしか実行できないようにする（キューシステムで管理)
         if ('dm' in self.options) and (interaction.user.id not in authorized_list):
             now = datetime.now(timezone(timedelta(hours=9)))
@@ -340,7 +340,7 @@ class OptionModal(discord.ui.Modal):
                 self.options = []
 
         self.status_content = '[loading url]'
-        
+
         # インタラクションが既にレスポンス済みでない場合のみdeferする
         try:
             if not interaction.response.is_done():
@@ -350,7 +350,7 @@ class OptionModal(discord.ui.Modal):
                 raise
             # 既に確認済みの場合は無視
             pass
-        
+
         self.channel = self.bot.get_channel(interaction.channel.id)
 
         embed = discord.Embed(
@@ -482,7 +482,7 @@ class OptionModal(discord.ui.Modal):
         self.author_name = user.display_name
         self.author_url = user.avatar.url if user.avatar else user.default_avatar.url
         self.author = user
-        
+
         # パスワードチェック（必要に応じて）
         if ('dm' in self.options) and (user.id not in authorized_list):
             now = datetime.now(timezone(timedelta(hours=9)))
@@ -506,7 +506,7 @@ class OptionModal(discord.ui.Modal):
             self.msg = await self.author.send(embed=embed,file=None)
         else:
             self.msg = await channel.send(embed=embed,file=None)
-        
+
         self.edit_message.start()
 
         if 'local' in self.options:
@@ -514,10 +514,10 @@ class OptionModal(discord.ui.Modal):
         else:
             temp_path = os.path.join(tempfile.gettempdir(), "YTD_temp")
             self.delete_folder(temp_path)
-            
+
             uploads_dir = os.path.join(temp_path, 'uploads')
             os.makedirs(uploads_dir)
-            
+
         self.input_url_list = self.url_input.value.split()
         url_list, self.num = self.get_urllist(self.input_url_list)
 
@@ -534,7 +534,7 @@ class OptionModal(discord.ui.Modal):
         if len(url_list) == 0:
             return
         print(url_list)
-        
+
         self.cnt = 1
         for item in url_list:
                 self.status_content = '[downloading]'
@@ -620,7 +620,7 @@ class OptionModal(discord.ui.Modal):
                 os.chmod(path, stat.S_IWRITE)
             elif os.path.isdir(path):
                 os.chmod(path, stat.S_IWRITE | stat.S_IEXEC | stat.S_IREAD)
-            
+
             # Retry the operation
             func(path)
         except Exception as e:
@@ -632,7 +632,7 @@ class OptionModal(discord.ui.Modal):
         """Force delete folder using alternative methods"""
         if not os.path.exists(folder):
             return
-            
+
         try:
             # Try using subprocess with rmdir /s for Windows
             subprocess.run(['rmdir', '/s', '/q', folder], shell=True, check=True)
@@ -666,7 +666,7 @@ class OptionModal(discord.ui.Modal):
                         os.remove(file_path)
                     except Exception as e:
                         print(f"Could not delete file {file_path}: {e}")
-                
+
                 # Delete all directories
                 for dir in dirs:
                     dir_path = os.path.join(root, dir)
@@ -675,7 +675,7 @@ class OptionModal(discord.ui.Modal):
                         os.rmdir(dir_path)
                     except Exception as e:
                         print(f"Could not delete directory {dir_path}: {e}")
-            
+
             # Finally delete the root folder
             try:
                 os.chmod(folder, stat.S_IWRITE | stat.S_IEXEC | stat.S_IREAD)
