@@ -115,7 +115,7 @@ class Main(commands.Cog):
                         guild=modal_data['guild']
                     )
                 except Exception as e:
-                    print(f"Error processing download: {e}")
+                    print(f"ダウンロード処理中にエラーが発生しました: {e}")
                     traceback.print_exc()
                 finally:
                     self.current_modal = None
@@ -123,7 +123,7 @@ class Main(commands.Cog):
                     download_queue.task_done()
 
             except Exception as e:
-                print(f"Error in queue processor: {e}")
+                print(f"キュープロセッサーでエラーが発生しました: {e}")
                 is_processing = False
 
     async def add_to_queue(self, modal_data):
@@ -240,7 +240,7 @@ class Main(commands.Cog):
     @app_commands.describe()
     async def stop_download(self, interaction: discord.Interaction,) -> Callable[[discord.Interaction], Awaitable[None]]:
         embed = discord.Embed(
-            description = f'Download was stopped by {interaction.user.display_name}',
+            description = f'{interaction.user.display_name} によりダウンロードが停止されました。',
             color=discord.Color.dark_red()
         )
         await interaction.response.send_message(embed=embed)
@@ -254,12 +254,12 @@ class OptionModal(discord.ui.Modal):
         self.zipfile = zipfile; self.extension = extension; self.codec = codec ;self.resolution = resolution; self.thumbnail = thumbnail; self.metadata = metadata; self.options = options.split(',')
         self.txt_content = txt_content  # TXTファイルからの内容
 
-        #optionlist
+        # オプションリスト
         '''
-        limit: Eliminate the limit on the number of downloads.
-        nvidia: Encoding with gpu.
-        dm: Run with dm.
-        local: Save to local.
+        limit: ダウンロード数制限を解除
+        nvidia: GPUでエンコード
+        dm: DMで実行
+        local: ローカルに保存
         '''
 
         self.bot = bot
@@ -330,7 +330,7 @@ class OptionModal(discord.ui.Modal):
             self.author_url = interaction.user.avatar.url
             self.author = interaction.user
     
-        #同時に1つしか実行できないようにする（キューシステムで管理)
+        # 同時に1つしか実行できないようにする（キューシステムで管理）
         if ('dm' in self.options) and (interaction.user.id not in authorized_list):
             now = datetime.now(timezone(timedelta(hours=9)))
             unix_timestamp = int(datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=now.tzinfo).timestamp())
@@ -374,7 +374,7 @@ class OptionModal(discord.ui.Modal):
                 self.msg = await self.channel.send(embed=embed,file=None)
         self.edit_message.start()
 
-        #self.msg = await interaction.followup.send(content='[initializing]', wait=True, ephemeral=self.ephemeral)
+        # self.msg = await interaction.followup.send(content='[initializing]', wait=True, ephemeral=self.ephemeral)
 
         if 'local' in self.options:
             temp_path = 'H:/'
@@ -390,7 +390,7 @@ class OptionModal(discord.ui.Modal):
 
         if self.num > self.max_downloads:
             embed = discord.Embed(
-                description = f'The maximum number of files that can be downloaded at one time is {self.max_downloads}.',
+                description = f'一度にダウンロードできる最大ファイル数は {self.max_downloads} です。',
                 )
             await self.channel.send(embed=embed)
 
@@ -439,7 +439,7 @@ class OptionModal(discord.ui.Modal):
                     if self.zipfile == False:
                         self.status_content = f'[uploading] {self.cnt}/{self.num} : {os.listdir(downloads_dir)[0]}'
                         self.embed_color = discord.Color.teal()
-                        #self.progress_content = ''
+                        # self.progress_content = ''
                         await self.upload_file(download_path, item)
                     else:
                         if 'local' not in self.options:
@@ -523,7 +523,7 @@ class OptionModal(discord.ui.Modal):
 
         if self.num > self.max_downloads:
             embed = discord.Embed(
-                description = f'The maximum number of files that can be downloaded at one time is {self.max_downloads}.',
+                description = f'一度にダウンロードできる最大ファイル数は {self.max_downloads} です。',
             )
             await self.channel.send(embed=embed)
 
@@ -532,6 +532,7 @@ class OptionModal(discord.ui.Modal):
             return
 
         if len(url_list) == 0:
+            # 無効なURLエラー
             return
         print(url_list)
 
@@ -571,7 +572,7 @@ class OptionModal(discord.ui.Modal):
                     if self.zipfile == False:
                         self.status_content = f'[uploading] {self.cnt}/{self.num} : {os.listdir(downloads_dir)[0]}'
                         self.embed_color = discord.Color.teal()
-                        #self.progress_content = ''
+                        # self.progress_content = ''
                         await self.upload_file(download_path, item)
                     else:
                         if 'local' not in self.options:
@@ -608,20 +609,20 @@ class OptionModal(discord.ui.Modal):
             try:
                 shutil.rmtree(folder, onerror=self.onerror)
             except Exception as e:
-                print(f"Failed to delete folder {folder}: {e}")
-                # Try alternative deletion method
+                print(f"{folder} の削除に失敗しました: {e}")
+                # 代替削除方法を試行
                 self.force_delete_folder(folder)
 
     def onerror(self, func, path, exc_info):
         """Handle errors during shutil.rmtree operations"""
         try:
-            # Remove read-only attribute for both files and directories
+            # ファイル・ディレクトリの読み取り専用属性を解除
             if os.path.isfile(path):
                 os.chmod(path, stat.S_IWRITE)
             elif os.path.isdir(path):
                 os.chmod(path, stat.S_IWRITE | stat.S_IEXEC | stat.S_IREAD)
 
-            # Retry the operation
+            # 再試行
             func(path)
         except Exception as e:
             print(f"Error in onerror for {path}: {e}")
@@ -634,12 +635,12 @@ class OptionModal(discord.ui.Modal):
             return
 
         try:
-            # Try using subprocess with rmdir /s for Windows
+            # Windows用にrmdir /s を使う
             subprocess.run(['rmdir', '/s', '/q', folder], shell=True, check=True)
-            print(f"Successfully deleted {folder} using rmdir")
+            print(f"rmdirで {folder} を削除しました")
         except Exception as e:
-            print(f"rmdir failed: {e}")
-            # Try manual recursive deletion
+            print(f"rmdir失敗: {e}")
+            # 手動で再帰削除を試行
             self.manual_delete_folder(folder)
 
     def force_delete_path(self, path: str) -> None:
@@ -652,31 +653,31 @@ class OptionModal(discord.ui.Modal):
                 os.chmod(path, stat.S_IWRITE | stat.S_IEXEC | stat.S_IREAD)
                 os.rmdir(path)
         except Exception as e:
-            print(f"Could not delete {path}: {e}")
+            print(f"{path} の削除に失敗: {e}")
 
     def manual_delete_folder(self, folder: str) -> None:
         """Manually delete folder contents recursively"""
         try:
             for root, dirs, files in os.walk(folder, topdown=False):
-                # Delete all files
+                # すべてのファイルを削除
                 for file in files:
                     file_path = os.path.join(root, file)
                     try:
                         os.chmod(file_path, stat.S_IWRITE)
                         os.remove(file_path)
                     except Exception as e:
-                        print(f"Could not delete file {file_path}: {e}")
+                        print(f"ファイル {file_path} の削除に失敗: {e}")
 
-                # Delete all directories
+                # すべてのディレクトリを削除
                 for dir in dirs:
                     dir_path = os.path.join(root, dir)
                     try:
                         os.chmod(dir_path, stat.S_IWRITE | stat.S_IEXEC | stat.S_IREAD)
                         os.rmdir(dir_path)
                     except Exception as e:
-                        print(f"Could not delete directory {dir_path}: {e}")
+                        print(f"ディレクトリ {dir_path} の削除に失敗: {e}")
 
-            # Finally delete the root folder
+            # 最後にルートフォルダを削除
             try:
                 os.chmod(folder, stat.S_IWRITE | stat.S_IEXEC | stat.S_IREAD)
                 os.rmdir(folder)
