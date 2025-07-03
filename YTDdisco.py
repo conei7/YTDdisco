@@ -197,14 +197,16 @@ class Main(commands.Cog):
                         description=f'ダウンロードキューに追加されました。順番: {queue_position}番目\n現在処理中のタスクが完了次第開始されます。',
                         color=discord.Color.blue()
                     )
-                    await interaction.response.defer()  # 応答を遅延
+                    # 応答を遅延
+                    await interaction.response.defer()
                     await interaction.followup.send(embed=embed, ephemeral=True)
                 else:
                     embed = discord.Embed(
                         description='ダウンロードを開始します...',
                         color=discord.Color.green()
                     )
-                    await interaction.response.defer()  # 応答を遅延
+                    # 応答を遅延
+                    await interaction.response.defer()
                     await interaction.followup.send(embed=embed, ephemeral=True)
 
             except Exception as e:
