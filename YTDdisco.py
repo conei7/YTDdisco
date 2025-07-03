@@ -173,9 +173,9 @@ class Main(commands.Cog):
             try:
                 file_content = await txtfile.read()
                 url_content = file_content.decode('utf-8')
-                  # レスポンスを遅延
+                # レスポンスを遅延
                 await interaction.response.defer()
-                  # キューに追加
+                # キューに追加
                 modal_data = {
                     'bot': self.bot,
                     'zipfile': zipfile,
