@@ -255,9 +255,8 @@ class OptionModal(discord.ui.Modal):
     def __init__(self, bot: commands.Bot, zipfile: bool = True, extension: str = 'mp3', codec: str = 'default', resolution: str = 'best', thumbnail: bool = True, metadata: bool = True, options: str = '', txt_content: str = None) -> None:
         super().__init__(title='Input Download URL', timeout=None)
         self.zipfile = zipfile; self.extension = extension; self.codec = codec ;self.resolution = resolution; self.thumbnail = thumbnail; self.metadata = metadata; self.options = options.split(',')
-        self.txt_content = txt_content  # TXTファイルからの内容
+        self.txt_content = txt_content
 
-        # オプションリスト
         '''
         limit: ダウンロード数制限を解除
         nvidia: GPUでエンコード
