@@ -982,7 +982,6 @@ class OptionModal(discord.ui.Modal):
 
         except Exception as e:
             self.status_content = f'[downloading] {self.cnt}/{self.num}'
-            #print('\n',e)
 
     def remove_color_codes(self, input_string: str) -> str:
         color_pattern = re.compile(r'\x1b\[[0-9;]*m')
