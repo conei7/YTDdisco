@@ -574,7 +574,7 @@ class OptionModal(discord.ui.Modal):
                     if self.zipfile == False:
                         self.status_content = f'[uploading] {self.cnt}/{self.num} : {os.listdir(downloads_dir)[0]}'
                         self.embed_color = discord.Color.teal()
-                        # self.progress_content = ''
+
                         await self.upload_file(download_path, item)
                     else:
                         if 'local' not in self.options:
