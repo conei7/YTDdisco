@@ -169,7 +169,8 @@ class Main(commands.Cog):
                 await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
 
-            try:                # TXTファイルの内容を読み取り
+            # TXTファイルの内容を読み取り
+            try:
                 file_content = await txtfile.read()
                 url_content = file_content.decode('utf-8')
                   # レスポンスを遅延
