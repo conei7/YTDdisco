@@ -447,15 +447,24 @@ class OptionModal(discord.ui.Modal):
                     self.cnt += 1
                     self.delete_folder(downloads_dir)
 
+        # ダウンロードされたファイル数を確認し、1個なら圧縮せず送信、複数ならzip化
         if self.zipfile == True:
-            self.num = 1; self.cnt = 1
-            self.status_content = '[making zip]'
-            self.embed_color = discord.Color.yellow()
-            await asyncio.to_thread(shutil.make_archive, uploads_dir, 'zip', uploads_dir)
-            self.status_content = '[uploading] 1/1'
-            self.embed_color = discord.Color.teal()
-            uploadzip_dir = os.path.join(temp_path, 'uploads.zip')
-            await self.upload_file(uploadzip_dir, self.input_url_list)
+            files = os.listdir(uploads_dir)
+            if len(files) == 1:
+                file_path = os.path.join(uploads_dir, files[0])
+                self.num = 1; self.cnt = 1
+                self.status_content = '[uploading] 1/1'
+                self.embed_color = discord.Color.teal()
+                await self.upload_file(file_path, self.input_url_list)
+            elif len(files) > 1:
+                self.num = 1; self.cnt = 1
+                self.status_content = '[making zip]'
+                self.embed_color = discord.Color.yellow()
+                await asyncio.to_thread(shutil.make_archive, uploads_dir, 'zip', uploads_dir)
+                self.status_content = '[uploading] 1/1'
+                self.embed_color = discord.Color.teal()
+                uploadzip_dir = os.path.join(temp_path, 'uploads.zip')
+                await self.upload_file(uploadzip_dir, self.input_url_list)
 
         self.delete_folder(temp_path)
         self.status_content = '[finished]'
@@ -580,15 +589,24 @@ class OptionModal(discord.ui.Modal):
                     if 'local' not in self.options:
                         self.delete_folder(downloads_dir)
 
+        # ダウンロードされたファイル数を確認し、1個なら圧縮せず送信、複数ならzip化
         if self.zipfile == True:
-            self.num = 1; self.cnt = 1
-            self.status_content = '[making zip]'
-            self.embed_color = discord.Color.yellow()
-            await asyncio.to_thread(shutil.make_archive, uploads_dir, 'zip', uploads_dir)
-            self.status_content = '[uploading] 1/1'
-            self.embed_color = discord.Color.teal()
-            uploadzip_dir = os.path.join(temp_path, 'uploads.zip')
-            await self.upload_file(uploadzip_dir, self.input_url_list)
+            files = os.listdir(uploads_dir)
+            if len(files) == 1:
+                file_path = os.path.join(uploads_dir, files[0])
+                self.num = 1; self.cnt = 1
+                self.status_content = '[uploading] 1/1'
+                self.embed_color = discord.Color.teal()
+                await self.upload_file(file_path, self.input_url_list)
+            elif len(files) > 1:
+                self.num = 1; self.cnt = 1
+                self.status_content = '[making zip]'
+                self.embed_color = discord.Color.yellow()
+                await asyncio.to_thread(shutil.make_archive, uploads_dir, 'zip', uploads_dir)
+                self.status_content = '[uploading] 1/1'
+                self.embed_color = discord.Color.teal()
+                uploadzip_dir = os.path.join(temp_path, 'uploads.zip')
+                await self.upload_file(uploadzip_dir, self.input_url_list)
 
         self.delete_folder(temp_path)
         self.status_content = '[finished]'
