@@ -719,17 +719,28 @@ class OptionModal(discord.ui.Modal):
     async def upload_file(self, path: str, message: str) -> None:
         print('uploading now')
 
-        gigafile_url = await self.upload_to_gigafile(path)
+        # 10MB以下なら直接Discordに添付
+        file_size = os.path.getsize(path)
+        if file_size <= 10 * 1024 * 1024:
+            # Truncate the message if it exceeds Discord's character limit (2000 characters)
+            if len(message) > 2000:
+                message = message[:1997] + '...'
+            discord_file = discord.File(path)
+            if 'dm' in self.options:
+                await self.author.send(content=message, file=discord_file)
+            else:
+                await self.channel.send(content=message, file=discord_file)
+            os.remove(path)
+            return
 
-        # Truncate the message if it exceeds Discord's character limit (2000 characters)
+        # 10MB超はgigafileにアップロード
+        gigafile_url = await self.upload_to_gigafile(path)
         if len(message) > 2000:
             message = message[:1997] + '...'
-
         if 'dm' in self.options:
             await self.author.send(content=f'<{gigafile_url}>\n{message}')
         else:
             await self.channel.send(content=f'<{gigafile_url}>\n{message}')
-
         os.remove(path)
 
     async def upload_to_gigafile(self, path: str) -> str:
