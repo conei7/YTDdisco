@@ -684,7 +684,7 @@ class OptionModal(discord.ui.Modal):
         except Exception as e:
             print(f"Manual deletion failed: {e}")
 
-    @tasks.loop(seconds=10)
+    @tasks.loop(seconds=5)
     async def edit_message(self):
         t = int(time.time() - self.time)
         embed = discord.Embed(
