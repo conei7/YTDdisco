@@ -264,7 +264,6 @@ class OptionModal(discord.ui.Modal):
         limit: ダウンロード数制限を解除
         nvidia: GPUでエンコード
         dm: DMで実行
-        local: ローカルに保存
         '''
 
         self.bot = bot
@@ -381,14 +380,11 @@ class OptionModal(discord.ui.Modal):
 
         # self.msg = await interaction.followup.send(content='[initializing]', wait=True, ephemeral=self.ephemeral)
 
-        if 'local' in self.options:
-            temp_path = 'H:/'
-        else:
-            temp_path = os.path.join(tempfile.gettempdir(), "YTD_temp")
-            self.delete_folder(temp_path)
+        temp_path = os.path.join(tempfile.gettempdir(), "YTD_temp")
+        self.delete_folder(temp_path)
 
-            uploads_dir = os.path.join(temp_path, 'uploads')
-            os.makedirs(uploads_dir)
+        uploads_dir = os.path.join(temp_path, 'uploads')
+        os.makedirs(uploads_dir)
 
         self.input_url_list = self.url_input.value.split()
         url_list, self.num = self.get_urllist(self.input_url_list)
@@ -444,16 +440,12 @@ class OptionModal(discord.ui.Modal):
                     if self.zipfile == False:
                         self.status_content = f'[uploading] {self.cnt}/{self.num} : {os.listdir(downloads_dir)[0]}'
                         self.embed_color = discord.Color.teal()
-                        # self.progress_content = ''
                         await self.upload_file(download_path, item)
                     else:
-                        if 'local' not in self.options:
-                            shutil.move(download_path, uploads_dir)
-
+                        shutil.move(download_path, uploads_dir)
 
                     self.cnt += 1
-                    if 'local' not in self.options:
-                        self.delete_folder(downloads_dir)
+                    self.delete_folder(downloads_dir)
 
         if self.zipfile == True:
             self.num = 1; self.cnt = 1
