@@ -460,10 +460,13 @@ class OptionModal(discord.ui.Modal):
                 self.num = 1; self.cnt = 1
                 self.status_content = '[making zip]'
                 self.embed_color = discord.Color.yellow()
-                await asyncio.to_thread(shutil.make_archive, uploads_dir, 'zip', uploads_dir)
+                # zipファイル名にタイムスタンプを付与
+                zip_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                zip_base = os.path.join(temp_path, f'uploads_{zip_timestamp}')
+                await asyncio.to_thread(shutil.make_archive, zip_base, 'zip', uploads_dir)
                 self.status_content = '[uploading] 1/1'
                 self.embed_color = discord.Color.teal()
-                uploadzip_dir = os.path.join(temp_path, 'uploads.zip')
+                uploadzip_dir = f'{zip_base}.zip'
                 await self.upload_file(uploadzip_dir, self.input_url_list)
 
         self.delete_folder(temp_path)
@@ -602,10 +605,13 @@ class OptionModal(discord.ui.Modal):
                 self.num = 1; self.cnt = 1
                 self.status_content = '[making zip]'
                 self.embed_color = discord.Color.yellow()
-                await asyncio.to_thread(shutil.make_archive, uploads_dir, 'zip', uploads_dir)
+                # zipファイル名にタイムスタンプを付与
+                zip_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                zip_base = os.path.join(temp_path, f'uploads_{zip_timestamp}')
+                await asyncio.to_thread(shutil.make_archive, zip_base, 'zip', uploads_dir)
                 self.status_content = '[uploading] 1/1'
                 self.embed_color = discord.Color.teal()
-                uploadzip_dir = os.path.join(temp_path, 'uploads.zip')
+                uploadzip_dir = f'{zip_base}.zip'
                 await self.upload_file(uploadzip_dir, self.input_url_list)
 
         self.delete_folder(temp_path)
