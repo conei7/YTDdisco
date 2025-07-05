@@ -36,8 +36,11 @@ import tempfile
 
 
 if len(sys.argv) > 3:
+    # 第一引数: Discordボットのトークン
     TOKEN = sys.argv[1]
+    # 第二引数: サーバー(GUILD)のID（数値）
     GUILD_ID = int(sys.argv[2])
+    # 第三引数: 許可ユーザーIDのカンマ区切りリスト（例: 12345,67890）
     authorized_list = [int(x) for x in sys.argv[3].split(",") if x]
 else:
     config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'YTDdisco.config')
