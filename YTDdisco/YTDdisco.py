@@ -380,106 +380,110 @@ class OptionModal(discord.ui.Modal):
 
         # self.msg = await interaction.followup.send(content='[initializing]', wait=True, ephemeral=self.ephemeral)
 
-        temp_path = os.path.join(tempfile.gettempdir(), "YTD_temp")
-        self.delete_folder(temp_path)
+        try:
+            temp_path = os.path.join(tempfile.gettempdir(), "YTD_temp")
+            self.delete_folder(temp_path)
 
-        uploads_dir = os.path.join(temp_path, 'uploads')
-        os.makedirs(uploads_dir)
+            uploads_dir = os.path.join(temp_path, 'uploads')
+            os.makedirs(uploads_dir)
 
-        self.input_url_list = self.url_input.value.split()
-        url_list, self.num = self.get_urllist(self.input_url_list)
+            self.input_url_list = self.url_input.value.split()
+            url_list, self.num = self.get_urllist(self.input_url_list)
 
-        if self.num > self.max_downloads:
-            embed = discord.Embed(
-                description = f'一度にダウンロードできる最大ファイル数は {self.max_downloads} です。',
-                )
-            await self.channel.send(embed=embed)
+            if self.num > self.max_downloads:
+                embed = discord.Embed(
+                    description = f'一度にダウンロードできる最大ファイル数は {self.max_downloads} です。',
+                    )
+                await self.channel.send(embed=embed)
+                return
 
-            self.run = False
-            self.edit_message.stop()
-            return
+            if len(url_list) == 0:
+                #await self.msg.edit(content='Invalid url error')
+                return
+            print(url_list)
 
-        if len(url_list) == 0:
-            #await self.msg.edit(content='Invalid url error')
-            return
-        print(url_list)
+            self.cnt = 1
+            for item in url_list:
+                    self.status_content = '[downloading]'
+                    self.embed_color = discord.Color.brand_red()
+                    if type(item) is tuple:
+                        downloads_dir = os.path.join(temp_path, item[1])
+                        for url in item[0]:
+                            try:
+                                await asyncio.to_thread(self.download, downloads_dir, url, self.extension, self.resolution, self.thumbnail, self.metadata,)
+                            except Exception:
+                                traceback.print_exc()
+                            self.cnt += 1
+                        self.cnt -= 1
+                        self.status_content = '[making zip]'
+                        self.embed_color = discord.Color.yellow()
 
-        self.cnt = 1
-        for item in url_list:
-                self.status_content = '[downloading]'
-                self.embed_color = discord.Color.brand_red()
-                if type(item) is tuple:
-                    downloads_dir = os.path.join(temp_path, item[1])
-                    for url in item[0]:
-                        try:
-                            await asyncio.to_thread(self.download, downloads_dir, url, self.extension, self.resolution, self.thumbnail, self.metadata,)
-                        except Exception:
-                            traceback.print_exc()
+                        if self.zipfile == False:
+                            self.status_content = f'[uploading] {self.cnt}/{self.num} : {item[1]}'
+                            self.embed_color = discord.Color.teal()
+                            await self.upload_file(downloads_dir, item)
+                        else:
+                            shutil.move(downloads_dir, uploads_dir)
+                        self.delete_folder(downloads_dir)
                         self.cnt += 1
-                    self.cnt -= 1
+
+                    elif type(item) is str:
+                        downloads_dir = os.path.join(temp_path, 'downloads')
+                        try:
+                            await asyncio.to_thread(self.download, downloads_dir, item, self.extension, self.resolution, self.thumbnail, self.metadata)
+                        except Exception as e:
+                            print(e)
+                        download_path = os.path.join(downloads_dir, os.listdir(downloads_dir)[0])
+
+                        if self.zipfile == False:
+                            self.status_content = f'[uploading] {self.cnt}/{self.num} : {os.listdir(downloads_dir)[0]}'
+                            self.embed_color = discord.Color.teal()
+                            await self.upload_file(download_path, item)
+                        else:
+                            shutil.move(download_path, uploads_dir)
+
+                        self.cnt += 1
+                        self.delete_folder(downloads_dir)
+
+            # ダウンロードされたファイル数を確認し、1個なら圧縮せず送信、複数ならzip化
+            if self.zipfile == True:
+                files = os.listdir(uploads_dir)
+                if len(files) == 1:
+                    file_path = os.path.join(uploads_dir, files[0])
+                    self.num = 1; self.cnt = 1
+                    self.status_content = '[uploading] 1/1'
+                    self.embed_color = discord.Color.teal()
+                    await self.upload_file(file_path, self.input_url_list)
+                elif len(files) > 1:
+                    self.num = 1; self.cnt = 1
                     self.status_content = '[making zip]'
                     self.embed_color = discord.Color.yellow()
+                    # zipファイル名にタイムスタンプを付与
+                    zip_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    zip_base = os.path.join(temp_path, f'uploads_{zip_timestamp}')
+                    await asyncio.to_thread(shutil.make_archive, zip_base, 'zip', uploads_dir)
+                    self.status_content = '[uploading] 1/1'
+                    self.embed_color = discord.Color.teal()
+                    uploadzip_dir = f'{zip_base}.zip'
+                    await self.upload_file(uploadzip_dir, self.input_url_list)
 
-                    if self.zipfile == False:
-                        self.status_content = f'[uploading] {self.cnt}/{self.num} : {item[1]}'
-                        self.embed_color = discord.Color.teal()
-                        await self.upload_file(downloads_dir, item)
-                    else:
-                        shutil.move(downloads_dir, uploads_dir)
-                    self.delete_folder(downloads_dir)
-                    self.cnt += 1
+            self.delete_folder(temp_path)
+            self.status_content = '[finished]'
+            self.embed_color = discord.Color.brand_green()
 
-                elif type(item) is str:
-                    downloads_dir = os.path.join(temp_path, 'downloads')
-                    try:
-                        await asyncio.to_thread(self.download, downloads_dir, item, self.extension, self.resolution, self.thumbnail, self.metadata)
-                    except Exception as e:
-                        print(e)
-                    download_path = os.path.join(downloads_dir, os.listdir(downloads_dir)[0])
-
-                    if self.zipfile == False:
-                        self.status_content = f'[uploading] {self.cnt}/{self.num} : {os.listdir(downloads_dir)[0]}'
-                        self.embed_color = discord.Color.teal()
-                        await self.upload_file(download_path, item)
-                    else:
-                        shutil.move(download_path, uploads_dir)
-
-                    self.cnt += 1
-                    self.delete_folder(downloads_dir)
-
-        # ダウンロードされたファイル数を確認し、1個なら圧縮せず送信、複数ならzip化
-        if self.zipfile == True:
-            files = os.listdir(uploads_dir)
-            if len(files) == 1:
-                file_path = os.path.join(uploads_dir, files[0])
-                self.num = 1; self.cnt = 1
-                self.status_content = '[uploading] 1/1'
-                self.embed_color = discord.Color.teal()
-                await self.upload_file(file_path, self.input_url_list)
-            elif len(files) > 1:
-                self.num = 1; self.cnt = 1
-                self.status_content = '[making zip]'
-                self.embed_color = discord.Color.yellow()
-                # zipファイル名にタイムスタンプを付与
-                zip_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                zip_base = os.path.join(temp_path, f'uploads_{zip_timestamp}')
-                await asyncio.to_thread(shutil.make_archive, zip_base, 'zip', uploads_dir)
-                self.status_content = '[uploading] 1/1'
-                self.embed_color = discord.Color.teal()
-                uploadzip_dir = f'{zip_base}.zip'
-                await self.upload_file(uploadzip_dir, self.input_url_list)
-
-        self.delete_folder(temp_path)
-        self.status_content = '[finished]'
-        self.embed_color = discord.Color.brand_green()
-
-        await asyncio.sleep(1)
-
-        self.run = False
-        self.edit_message.stop()
-        #await self.msg.delete()
-        print('finished')
-        await self.bot.change_presence(activity=discord.Game(name=''))
+            await asyncio.sleep(1)
+            print('finished')
+            await self.bot.change_presence(activity=discord.Game(name=''))
+        except Exception as e:
+            print(f'main()でエラーが発生しました: {e}')
+            traceback.print_exc()
+            self.status_content = '[error]'
+            self.embed_color = discord.Color.red()
+        finally:
+            # 確実にedit_messageタスクを停止
+            self.run = False
+            if self.edit_message.is_running():
+                self.edit_message.stop()
 
     async def main_without_interaction(self, user, channel, guild):
         """インタラクションを使わずにダウンロード処理を実行"""
@@ -518,112 +522,117 @@ class OptionModal(discord.ui.Modal):
 
         self.edit_message.start()
 
-        if 'local' in self.options:
-            temp_path = 'H:/'
-        else:
-            temp_path = os.path.join(tempfile.gettempdir(), "YTD_temp")
-            self.delete_folder(temp_path)
+        try:
+            if 'local' in self.options:
+                temp_path = 'H:/'
+            else:
+                temp_path = os.path.join(tempfile.gettempdir(), "YTD_temp")
+                self.delete_folder(temp_path)
 
-            uploads_dir = os.path.join(temp_path, 'uploads')
-            os.makedirs(uploads_dir)
+                uploads_dir = os.path.join(temp_path, 'uploads')
+                os.makedirs(uploads_dir)
 
-        self.input_url_list = self.url_input.value.split()
-        url_list, self.num = self.get_urllist(self.input_url_list)
+            self.input_url_list = self.url_input.value.split()
+            url_list, self.num = self.get_urllist(self.input_url_list)
 
-        if self.num > self.max_downloads:
-            embed = discord.Embed(
-                description = f'一度にダウンロードできる最大ファイル数は {self.max_downloads} です。',
-            )
-            await self.channel.send(embed=embed)
+            if self.num > self.max_downloads:
+                embed = discord.Embed(
+                    description = f'一度にダウンロードできる最大ファイル数は {self.max_downloads} です。',
+                )
+                await self.channel.send(embed=embed)
+                return
 
-            self.run = False
-            self.edit_message.stop()
-            return
+            if len(url_list) == 0:
+                # 無効なURLエラー
+                return
+            print(url_list)
 
-        if len(url_list) == 0:
-            # 無効なURLエラー
-            return
-        print(url_list)
+            self.cnt = 1
+            for item in url_list:
+                    self.status_content = '[downloading]'
+                    self.embed_color = discord.Color.brand_red()
+                    if type(item) is tuple:
+                        downloads_dir = os.path.join(temp_path, item[1])
+                        for url in item[0]:
+                            try:
+                                await asyncio.to_thread(self.download, downloads_dir, url, self.extension, self.resolution, self.thumbnail, self.metadata,)
+                            except Exception:
+                                traceback.print_exc()
+                            self.cnt += 1
+                        self.cnt -= 1
+                        self.status_content = '[making zip]'
+                        self.embed_color = discord.Color.yellow()
 
-        self.cnt = 1
-        for item in url_list:
-                self.status_content = '[downloading]'
-                self.embed_color = discord.Color.brand_red()
-                if type(item) is tuple:
-                    downloads_dir = os.path.join(temp_path, item[1])
-                    for url in item[0]:
-                        try:
-                            await asyncio.to_thread(self.download, downloads_dir, url, self.extension, self.resolution, self.thumbnail, self.metadata,)
-                        except Exception:
-                            traceback.print_exc()
+                        if self.zipfile == False:
+                            self.status_content = f'[uploading] {self.cnt}/{self.num} : {item[1]}'
+                            self.embed_color = discord.Color.teal()
+                            await self.upload_file(downloads_dir, item)
+                        else:
+                            shutil.move(downloads_dir, uploads_dir)
+                        self.delete_folder(downloads_dir)
                         self.cnt += 1
-                    self.cnt -= 1
+
+                    elif type(item) is str:
+                        downloads_dir = os.path.join(temp_path, 'downloads')
+                        try:
+                            await asyncio.to_thread(self.download, downloads_dir, item, self.extension, self.resolution, self.thumbnail, self.metadata)
+                        except Exception as e:
+                            print(e)
+                        download_path = os.path.join(downloads_dir, os.listdir(downloads_dir)[0])
+
+                        if self.zipfile == False:
+                            self.status_content = f'[uploading] {self.cnt}/{self.num} : {os.listdir(downloads_dir)[0]}'
+                            self.embed_color = discord.Color.teal()
+
+                            await self.upload_file(download_path, item)
+                        else:
+                            if 'local' not in self.options:
+                                shutil.move(download_path, uploads_dir)
+
+
+                        self.cnt += 1
+                        if 'local' not in self.options:
+                            self.delete_folder(downloads_dir)
+
+            # ダウンロードされたファイル数を確認し、1個なら圧縮せず送信、複数ならzip化
+            if self.zipfile == True:
+                files = os.listdir(uploads_dir)
+                if len(files) == 1:
+                    file_path = os.path.join(uploads_dir, files[0])
+                    self.num = 1; self.cnt = 1
+                    self.status_content = '[uploading] 1/1'
+                    self.embed_color = discord.Color.teal()
+                    await self.upload_file(file_path, self.input_url_list)
+                elif len(files) > 1:
+                    self.num = 1; self.cnt = 1
                     self.status_content = '[making zip]'
                     self.embed_color = discord.Color.yellow()
+                    # zipファイル名にタイムスタンプを付与
+                    zip_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    zip_base = os.path.join(temp_path, f'uploads_{zip_timestamp}')
+                    await asyncio.to_thread(shutil.make_archive, zip_base, 'zip', uploads_dir)
+                    self.status_content = '[uploading] 1/1'
+                    self.embed_color = discord.Color.teal()
+                    uploadzip_dir = f'{zip_base}.zip'
+                    await self.upload_file(uploadzip_dir, self.input_url_list)
 
-                    if self.zipfile == False:
-                        self.status_content = f'[uploading] {self.cnt}/{self.num} : {item[1]}'
-                        self.embed_color = discord.Color.teal()
-                        await self.upload_file(downloads_dir, item)
-                    else:
-                        shutil.move(downloads_dir, uploads_dir)
-                    self.delete_folder(downloads_dir)
-                    self.cnt += 1
+            self.delete_folder(temp_path)
+            self.status_content = '[finished]'
+            self.embed_color = discord.Color.brand_green()
 
-                elif type(item) is str:
-                    downloads_dir = os.path.join(temp_path, 'downloads')
-                    try:
-                        await asyncio.to_thread(self.download, downloads_dir, item, self.extension, self.resolution, self.thumbnail, self.metadata)
-                    except Exception as e:
-                        print(e)
-                    download_path = os.path.join(downloads_dir, os.listdir(downloads_dir)[0])
-
-                    if self.zipfile == False:
-                        self.status_content = f'[uploading] {self.cnt}/{self.num} : {os.listdir(downloads_dir)[0]}'
-                        self.embed_color = discord.Color.teal()
-
-                        await self.upload_file(download_path, item)
-                    else:
-                        if 'local' not in self.options:
-                            shutil.move(download_path, uploads_dir)
-
-
-                    self.cnt += 1
-                    if 'local' not in self.options:
-                        self.delete_folder(downloads_dir)
-
-        # ダウンロードされたファイル数を確認し、1個なら圧縮せず送信、複数ならzip化
-        if self.zipfile == True:
-            files = os.listdir(uploads_dir)
-            if len(files) == 1:
-                file_path = os.path.join(uploads_dir, files[0])
-                self.num = 1; self.cnt = 1
-                self.status_content = '[uploading] 1/1'
-                self.embed_color = discord.Color.teal()
-                await self.upload_file(file_path, self.input_url_list)
-            elif len(files) > 1:
-                self.num = 1; self.cnt = 1
-                self.status_content = '[making zip]'
-                self.embed_color = discord.Color.yellow()
-                # zipファイル名にタイムスタンプを付与
-                zip_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                zip_base = os.path.join(temp_path, f'uploads_{zip_timestamp}')
-                await asyncio.to_thread(shutil.make_archive, zip_base, 'zip', uploads_dir)
-                self.status_content = '[uploading] 1/1'
-                self.embed_color = discord.Color.teal()
-                uploadzip_dir = f'{zip_base}.zip'
-                await self.upload_file(uploadzip_dir, self.input_url_list)
-
-        self.delete_folder(temp_path)
-        self.status_content = '[finished]'
-        self.embed_color = discord.Color.brand_green()
-
-        await asyncio.sleep(1)
-
-        self.run = False
-        self.edit_message.stop()
-        print('finished')
-        await self.bot.change_presence(activity=discord.Game(name=''))
+            await asyncio.sleep(1)
+            print('finished')
+            await self.bot.change_presence(activity=discord.Game(name=''))
+        except Exception as e:
+            print(f'main_without_interaction()でエラーが発生しました: {e}')
+            traceback.print_exc()
+            self.status_content = '[error]'
+            self.embed_color = discord.Color.red()
+        finally:
+            # 確実にedit_messageタスクを停止
+            self.run = False
+            if self.edit_message.is_running():
+                self.edit_message.stop()
 
     def delete_folder(self, folder: str) -> None:
         if os.path.isdir(folder):
@@ -710,16 +719,24 @@ class OptionModal(discord.ui.Modal):
 
     @tasks.loop(seconds=5)
     async def edit_message(self):
-        t = int(time.time() - self.time)
-        embed = discord.Embed(
-            title = self.status_content,
-            description = f'{self.progress_content} ({str(t//3600).zfill(2)}:{str((t%3600)//60).zfill(2)}:{str(t%3600%60).zfill(2)})',
-            color = self.embed_color,
-            )
-        embed.set_author(name=self.author_name, icon_url=self.author_url)
+        if not self.run:
+            return
         try:
+            t = int(time.time() - self.time)
+            embed = discord.Embed(
+                title = self.status_content,
+                description = f'{self.progress_content} ({str(t//3600).zfill(2)}:{str((t%3600)//60).zfill(2)}:{str(t%3600%60).zfill(2)})',
+                color = self.embed_color,
+                )
+            embed.set_author(name=self.author_name, icon_url=self.author_url)
             await self.msg.edit(embed=embed)
-        except:pass
+        except discord.errors.HTTPException as e:
+            if e.status == 429:  # レート制限
+                print(f'レート制限を受けました。次のループまで待機します。')
+            else:
+                print(f'メッセージ編集エラー: {e}')
+        except Exception as e:
+            print(f'edit_messageでエラー: {e}')
 
     async def progress_send(self, interaction: discord.Interaction) -> None:
         embed = discord.Embed(
