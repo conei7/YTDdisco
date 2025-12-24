@@ -176,7 +176,7 @@ class Main(commands.Cog):
             try:
                 file_content = await txtfile.read()
                 url_content = file_content.decode('utf-8')
-                # レスポンスを遅延
+                # レスポンスを遅延（最初に1回だけ）
                 await interaction.response.defer()
                 # キューに追加
                 modal_data = {
@@ -200,16 +200,12 @@ class Main(commands.Cog):
                         description=f'ダウンロードキューに追加されました。順番: {queue_position}番目\n現在処理中のタスクが完了次第開始されます。',
                         color=discord.Color.blue()
                     )
-                    # 応答を遅延
-                    await interaction.response.defer()
                     await interaction.followup.send(embed=embed, ephemeral=True)
                 else:
                     embed = discord.Embed(
                         description='ダウンロードを開始します...',
                         color=discord.Color.green()
                     )
-                    # 応答を遅延
-                    await interaction.response.defer()
                     await interaction.followup.send(embed=embed, ephemeral=True)
 
             except Exception as e:
@@ -217,7 +213,11 @@ class Main(commands.Cog):
                     description = f'TXTファイルの読み込み中にエラーが発生しました: {str(e)}',
                     color=discord.Color.red()
                 )
-                await interaction.response.send_message(embed=embed, ephemeral=True)
+                # 既にdeferしていた場合はfollowupを使用
+                if interaction.response.is_done():
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                else:
+                    await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
         else:
             # TXTファイルが添付されていない場合は通常のmodal表示
@@ -432,7 +432,15 @@ class OptionModal(discord.ui.Modal):
                         try:
                             await asyncio.to_thread(self.download, downloads_dir, item, self.extension, self.resolution, self.thumbnail, self.metadata)
                         except Exception as e:
-                            print(e)
+                            print(f'ダウンロードエラー: {e}')
+                            traceback.print_exc()
+                        
+                        # ダウンロードディレクトリが存在し、ファイルがあるか確認
+                        if not os.path.exists(downloads_dir) or len(os.listdir(downloads_dir)) == 0:
+                            print(f'ダウンロード失敗またはファイルなし: {item}')
+                            self.cnt += 1
+                            continue
+                        
                         download_path = os.path.join(downloads_dir, os.listdir(downloads_dir)[0])
 
                         if self.zipfile == False:
@@ -445,15 +453,28 @@ class OptionModal(discord.ui.Modal):
                         self.cnt += 1
                         self.delete_folder(downloads_dir)
 
-            # ダウンロードされたファイル数を確認し、1個なら圧縮せず送信、複数ならzip化
+            # ダウンロードされたファイル数を確認し、1個のファイルなら圧縮せず送信、複数またはフォルダならzip化
             if self.zipfile == True:
                 files = os.listdir(uploads_dir)
                 if len(files) == 1:
                     file_path = os.path.join(uploads_dir, files[0])
-                    self.num = 1; self.cnt = 1
-                    self.status_content = '[uploading] 1/1'
-                    self.embed_color = discord.Color.teal()
-                    await self.upload_file(file_path, self.input_url_list)
+                    # フォルダの場合はzip化する
+                    if os.path.isdir(file_path):
+                        self.num = 1; self.cnt = 1
+                        self.status_content = '[making zip]'
+                        self.embed_color = discord.Color.yellow()
+                        zip_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        zip_base = os.path.join(temp_path, f'uploads_{zip_timestamp}')
+                        await asyncio.to_thread(shutil.make_archive, zip_base, 'zip', file_path)
+                        self.status_content = '[uploading] 1/1'
+                        self.embed_color = discord.Color.teal()
+                        uploadzip_dir = f'{zip_base}.zip'
+                        await self.upload_file(uploadzip_dir, self.input_url_list)
+                    else:
+                        self.num = 1; self.cnt = 1
+                        self.status_content = '[uploading] 1/1'
+                        self.embed_color = discord.Color.teal()
+                        await self.upload_file(file_path, self.input_url_list)
                 elif len(files) > 1:
                     self.num = 1; self.cnt = 1
                     self.status_content = '[making zip]'
@@ -577,7 +598,15 @@ class OptionModal(discord.ui.Modal):
                         try:
                             await asyncio.to_thread(self.download, downloads_dir, item, self.extension, self.resolution, self.thumbnail, self.metadata)
                         except Exception as e:
-                            print(e)
+                            print(f'ダウンロードエラー: {e}')
+                            traceback.print_exc()
+                        
+                        # ダウンロードディレクトリが存在し、ファイルがあるか確認
+                        if not os.path.exists(downloads_dir) or len(os.listdir(downloads_dir)) == 0:
+                            print(f'ダウンロード失敗またはファイルなし: {item}')
+                            self.cnt += 1
+                            continue
+                        
                         download_path = os.path.join(downloads_dir, os.listdir(downloads_dir)[0])
 
                         if self.zipfile == False:
@@ -594,15 +623,28 @@ class OptionModal(discord.ui.Modal):
                         if 'local' not in self.options:
                             self.delete_folder(downloads_dir)
 
-            # ダウンロードされたファイル数を確認し、1個なら圧縮せず送信、複数ならzip化
+            # ダウンロードされたファイル数を確認し、1個のファイルなら圧縮せず送信、複数またはフォルダならzip化
             if self.zipfile == True:
                 files = os.listdir(uploads_dir)
                 if len(files) == 1:
                     file_path = os.path.join(uploads_dir, files[0])
-                    self.num = 1; self.cnt = 1
-                    self.status_content = '[uploading] 1/1'
-                    self.embed_color = discord.Color.teal()
-                    await self.upload_file(file_path, self.input_url_list)
+                    # フォルダの場合はzip化する
+                    if os.path.isdir(file_path):
+                        self.num = 1; self.cnt = 1
+                        self.status_content = '[making zip]'
+                        self.embed_color = discord.Color.yellow()
+                        zip_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        zip_base = os.path.join(temp_path, f'uploads_{zip_timestamp}')
+                        await asyncio.to_thread(shutil.make_archive, zip_base, 'zip', file_path)
+                        self.status_content = '[uploading] 1/1'
+                        self.embed_color = discord.Color.teal()
+                        uploadzip_dir = f'{zip_base}.zip'
+                        await self.upload_file(uploadzip_dir, self.input_url_list)
+                    else:
+                        self.num = 1; self.cnt = 1
+                        self.status_content = '[uploading] 1/1'
+                        self.embed_color = discord.Color.teal()
+                        await self.upload_file(file_path, self.input_url_list)
                 elif len(files) > 1:
                     self.num = 1; self.cnt = 1
                     self.status_content = '[making zip]'
@@ -909,6 +951,9 @@ class OptionModal(discord.ui.Modal):
 
     def download(self, path: str , url: str, extension: str, resolution: str, thumbnail: str, metadata: str) -> None:
         self.status_content = f'[downloading] {self.cnt}/{self.num}'
+
+        # ダウンロード先ディレクトリが存在しない場合は作成（Linux対応）
+        os.makedirs(path, exist_ok=True)
 
         if 'gigafile.nu' in url:
             gigafile = Giga(self, url)
