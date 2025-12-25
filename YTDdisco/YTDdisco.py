@@ -6,6 +6,7 @@ import stat
 import yt_dlp
 import shutil
 import asyncio
+import logging
 import traceback
 import subprocess
 from niconico import NicoNico #niconico.py
@@ -595,27 +596,32 @@ class OptionModal(discord.ui.Modal):
 
                     elif type(item) is str:
                         downloads_dir = os.path.join(temp_path, 'downloads')
+                        logging.info(f'YTD: ダウンロード開始 - {item}')
                         try:
                             await asyncio.to_thread(self.download, downloads_dir, item, self.extension, self.resolution, self.thumbnail, self.metadata)
+                            logging.info(f'YTD: ダウンロード完了 - {item}')
                         except Exception as e:
-                            print(f'ダウンロードエラー: {e}')
+                            logging.error(f'YTD: ダウンロードエラー - {e}')
                             traceback.print_exc()
                         
                         # ダウンロードディレクトリが存在し、ファイルがあるか確認
                         if not os.path.exists(downloads_dir) or len(os.listdir(downloads_dir)) == 0:
-                            print(f'ダウンロード失敗またはファイルなし: {item}')
+                            logging.warning(f'YTD: ダウンロード失敗またはファイルなし - {item}')
                             self.cnt += 1
                             continue
                         
+                        logging.info(f'YTD: downloads_dir内容 - {os.listdir(downloads_dir)}')
                         download_path = os.path.join(downloads_dir, os.listdir(downloads_dir)[0])
 
                         if self.zipfile == False:
                             self.status_content = f'[uploading] {self.cnt}/{self.num} : {os.listdir(downloads_dir)[0]}'
                             self.embed_color = discord.Color.teal()
-
+                            logging.info(f'YTD: アップロード開始 - {download_path}')
                             await self.upload_file(download_path, item)
+                            logging.info(f'YTD: アップロード完了')
                         else:
                             if 'local' not in self.options:
+                                logging.info(f'YTD: ファイル移動 - {download_path} -> {uploads_dir}')
                                 shutil.move(download_path, uploads_dir)
 
 
@@ -623,9 +629,14 @@ class OptionModal(discord.ui.Modal):
                         if 'local' not in self.options:
                             self.delete_folder(downloads_dir)
 
+            logging.info(f'YTD: ダウンロードループ終了, zipfile={self.zipfile}')
             # ダウンロードされたファイル数を確認し、1個のファイルなら圧縮せず送信、複数またはフォルダならzip化
             if self.zipfile == True:
+                logging.info(f'YTD: uploads_dir={uploads_dir}, exists={os.path.exists(uploads_dir)}')
+                if os.path.exists(uploads_dir):
+                    logging.info(f'YTD: uploads_dir内容={os.listdir(uploads_dir)}')
                 files = os.listdir(uploads_dir)
+                logging.info(f'YTD: zip処理開始, files数={len(files)}')
                 if len(files) == 1:
                     file_path = os.path.join(uploads_dir, files[0])
                     # フォルダの場合はzip化する
