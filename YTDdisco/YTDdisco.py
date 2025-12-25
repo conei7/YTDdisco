@@ -423,9 +423,10 @@ class OptionModal(discord.ui.Modal):
                             self.status_content = f'[uploading] {self.cnt}/{self.num} : {item[1]}'
                             self.embed_color = discord.Color.teal()
                             await self.upload_file(downloads_dir, item)
+                            self.delete_folder(downloads_dir)
                         else:
                             shutil.move(downloads_dir, uploads_dir)
-                        self.delete_folder(downloads_dir)
+                            # move後はdownloads_dirは存在しないので削除不要
                         self.cnt += 1
 
                     elif type(item) is str:
@@ -589,9 +590,10 @@ class OptionModal(discord.ui.Modal):
                             self.status_content = f'[uploading] {self.cnt}/{self.num} : {item[1]}'
                             self.embed_color = discord.Color.teal()
                             await self.upload_file(downloads_dir, item)
+                            self.delete_folder(downloads_dir)
                         else:
                             shutil.move(downloads_dir, uploads_dir)
-                        self.delete_folder(downloads_dir)
+                            # move後はdownloads_dirは存在しないので削除不要
                         self.cnt += 1
 
                     elif type(item) is str:
