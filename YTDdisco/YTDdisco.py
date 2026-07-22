@@ -20,7 +20,6 @@ from discord.ext import commands
 import io
 import math
 import uuid
-import functools
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -389,6 +388,8 @@ class OptionModal(discord.ui.Modal):
             os.makedirs(uploads_dir)
 
             self.input_url_list = self.url_input.value.split()
+            self.failed_downloads = []
+            self.ensure_niconico_crypto()
             url_list, self.num = self.get_urllist(self.input_url_list)
 
             if self.num > self.max_downloads:
@@ -412,7 +413,8 @@ class OptionModal(discord.ui.Modal):
                         for url in item[0]:
                             try:
                                 await asyncio.to_thread(self.download, downloads_dir, url, self.extension, self.resolution, self.thumbnail, self.metadata,)
-                            except Exception:
+                            except Exception as e:
+                                self.failed_downloads.append(f'{self.cnt}: {url} ({e})')
                                 traceback.print_exc()
                             self.cnt += 1
                         self.cnt -= 1
@@ -431,11 +433,19 @@ class OptionModal(discord.ui.Modal):
 
                     elif type(item) is str:
                         downloads_dir = os.path.join(temp_path, 'downloads')
+                        download_succeeded = False
                         try:
                             await asyncio.to_thread(self.download, downloads_dir, item, self.extension, self.resolution, self.thumbnail, self.metadata)
+                            download_succeeded = True
                         except Exception as e:
+                            self.failed_downloads.append(f'{self.cnt}: {item} ({e})')
                             print(f'ダウンロードエラー: {e}')
                             traceback.print_exc()
+
+                        if not download_succeeded:
+                            self.delete_folder(downloads_dir)
+                            self.cnt += 1
+                            continue
                         
                         # ダウンロードディレクトリが存在し、ファイルがあるか確認
                         if not os.path.exists(downloads_dir) or len(os.listdir(downloads_dir)) == 0:
@@ -490,6 +500,7 @@ class OptionModal(discord.ui.Modal):
                     uploadzip_dir = f'{zip_base}.zip'
                     await self.upload_file(uploadzip_dir, self.input_url_list)
 
+            await self.send_failure_summary()
             self.delete_folder(temp_path)
             self.status_content = '[finished]'
             self.embed_color = discord.Color.brand_green()
@@ -501,7 +512,16 @@ class OptionModal(discord.ui.Modal):
             print(f'main()でエラーが発生しました: {e}')
             traceback.print_exc()
             self.status_content = '[error]'
+            self.progress_content = str(e)[:4000]
             self.embed_color = discord.Color.red()
+            try:
+                await self.msg.edit(embed=discord.Embed(
+                    title=self.status_content,
+                    description=self.progress_content,
+                    color=self.embed_color,
+                ))
+            except Exception as edit_error:
+                print(f'エラー状態のメッセージ更新に失敗しました: {edit_error}')
         finally:
             # 確実にedit_messageタスクを停止
             self.run = False
@@ -556,6 +576,8 @@ class OptionModal(discord.ui.Modal):
                 os.makedirs(uploads_dir)
 
             self.input_url_list = self.url_input.value.split()
+            self.failed_downloads = []
+            self.ensure_niconico_crypto()
             url_list, self.num = self.get_urllist(self.input_url_list)
 
             if self.num > self.max_downloads:
@@ -579,7 +601,8 @@ class OptionModal(discord.ui.Modal):
                         for url in item[0]:
                             try:
                                 await asyncio.to_thread(self.download, downloads_dir, url, self.extension, self.resolution, self.thumbnail, self.metadata,)
-                            except Exception:
+                            except Exception as e:
+                                self.failed_downloads.append(f'{self.cnt}: {url} ({e})')
                                 traceback.print_exc()
                             self.cnt += 1
                         self.cnt -= 1
@@ -599,12 +622,21 @@ class OptionModal(discord.ui.Modal):
                     elif type(item) is str:
                         downloads_dir = os.path.join(temp_path, 'downloads')
                         logging.info(f'YTD: ダウンロード開始 - {item}')
+                        download_succeeded = False
                         try:
                             await asyncio.to_thread(self.download, downloads_dir, item, self.extension, self.resolution, self.thumbnail, self.metadata)
+                            download_succeeded = True
                             logging.info(f'YTD: ダウンロード完了 - {item}')
                         except Exception as e:
+                            self.failed_downloads.append(f'{self.cnt}: {item} ({e})')
                             logging.error(f'YTD: ダウンロードエラー - {e}')
                             traceback.print_exc()
+
+                        if not download_succeeded:
+                            if 'local' not in self.options:
+                                self.delete_folder(downloads_dir)
+                            self.cnt += 1
+                            continue
                         
                         # ダウンロードディレクトリが存在し、ファイルがあるか確認
                         if not os.path.exists(downloads_dir) or len(os.listdir(downloads_dir)) == 0:
@@ -671,6 +703,7 @@ class OptionModal(discord.ui.Modal):
                     uploadzip_dir = f'{zip_base}.zip'
                     await self.upload_file(uploadzip_dir, self.input_url_list)
 
+            await self.send_failure_summary()
             self.delete_folder(temp_path)
             self.status_content = '[finished]'
             self.embed_color = discord.Color.brand_green()
@@ -682,7 +715,16 @@ class OptionModal(discord.ui.Modal):
             print(f'main_without_interaction()でエラーが発生しました: {e}')
             traceback.print_exc()
             self.status_content = '[error]'
+            self.progress_content = str(e)[:4000]
             self.embed_color = discord.Color.red()
+            try:
+                await self.msg.edit(embed=discord.Embed(
+                    title=self.status_content,
+                    description=self.progress_content,
+                    color=self.embed_color,
+                ))
+            except Exception as edit_error:
+                print(f'エラー状態のメッセージ更新に失敗しました: {edit_error}')
         finally:
             # 確実にedit_messageタスクを停止
             self.run = False
@@ -812,31 +854,68 @@ class OptionModal(discord.ui.Modal):
 
         self.msg = await interaction.channel.send(embed=embed,file=None)
 
-    async def upload_file(self, path: str, message: str) -> None:
+    def format_result_message(self, message: Any) -> str:
+        """Convert URL lists/tuples to Discord-safe text."""
+        if isinstance(message, (list, tuple)):
+            message = '\n'.join(
+                self.format_result_message(item) for item in message
+            )
+        return str(message)
+
+    async def send_failure_summary(self) -> None:
+        failures = getattr(self, 'failed_downloads', [])
+        if not failures:
+            return
+        content = '⚠️ ダウンロードに失敗してスキップした項目:\n' + '\n'.join(failures)
+        if len(content) > 2000:
+            content = content[:1997] + '...'
+        target = self.author if 'dm' in self.options else self.channel
+        await target.send(content=content)
+
+    async def send_result(self, content: str, file=None) -> None:
+        """Send a result even after a long-running interaction has expired."""
+        target = self.author if 'dm' in self.options else self.channel
+        last_error = None
+        for attempt in range(3):
+            try:
+                await target.send(content=content, file=file)
+                return
+            except discord.errors.HTTPException as e:
+                last_error = e
+                if attempt < 2:
+                    await asyncio.sleep(2 ** attempt)
+
+        # A bot-owned progress message can be edited indefinitely and does not
+        # depend on the original interaction token.  Preserve the download URL
+        # there if Discord rejects creation of a new message.
+        if file is None and getattr(self, 'msg', None) is not None:
+            self.run = False
+            if self.edit_message.is_running():
+                self.edit_message.stop()
+            await self.msg.edit(content=content, embed=None)
+            return
+        raise last_error
+
+    async def upload_file(self, path: str, message: Any) -> None:
         print('uploading now')
+        message_text = self.format_result_message(message)
 
         # 10MB以下なら直接Discordに添付
         file_size = os.path.getsize(path)
         if file_size <= 10 * 1024 * 1024:
-            # Truncate the message if it exceeds Discord's character limit (2000 characters)
-            if len(message) > 2000:
-                message = message[:1997] + '...'
+            if len(message_text) > 2000:
+                message_text = message_text[:1997] + '...'
             discord_file = discord.File(path)
-            if 'dm' in self.options:
-                await self.author.send(content=message, file=discord_file)
-            else:
-                await self.channel.send(content=message, file=discord_file)
+            await self.send_result(message_text, file=discord_file)
             os.remove(path)
             return
 
         # 10MB超はgigafileにアップロード
         gigafile_url = await self.upload_to_gigafile(path)
-        if len(message) > 2000:
-            message = message[:1997] + '...'
-        if 'dm' in self.options:
-            await self.author.send(content=f'<{gigafile_url}>\n{message}')
-        else:
-            await self.channel.send(content=f'<{gigafile_url}>\n{message}')
+        result_content = f'<{gigafile_url}>\n{message_text}'
+        if len(result_content) > 2000:
+            result_content = result_content[:1997] + '...'
+        await self.send_result(result_content)
         os.remove(path)
 
     async def upload_to_gigafile(self, path: str) -> str:
@@ -962,6 +1041,18 @@ class OptionModal(discord.ui.Modal):
 
         return url_list, cnt
 
+    def ensure_niconico_crypto(self) -> None:
+        """Fail fast instead of hanging in ffmpeg on encrypted Niconico HLS."""
+        if not any('nicovideo.jp' in url for url in self.input_url_list):
+            return
+        try:
+            from Cryptodome.Cipher import AES  # noqa: F401
+        except ImportError as e:
+            raise RuntimeError(
+                'ニコニコ動画の暗号化HLSを処理する pycryptodomex がありません。'
+                'AutoMonitor の /upgrade で pycryptodomex をインストールしてから再実行してください。'
+            ) from e
+
     def download(self, path: str , url: str, extension: str, resolution: str, thumbnail: str, metadata: str) -> None:
         self.status_content = f'[downloading] {self.cnt}/{self.num}'
 
@@ -1029,9 +1120,42 @@ class OptionModal(discord.ui.Modal):
 
             if any(sub in url for sub in self.aria2_sites):
                 options.update({
+                    # Keep aria2c for direct HTTP media.  Current encrypted HLS
+                    # is handled natively by yt-dlp (aria2c cannot take over
+                    # that manifest), with parallel fragments for speed.
                     'external_downloader': 'aria2c',
-                    'external_downloader_args': ['-x 16', '-k 1M', '-c', '-n'],
+                    'external_downloader_args': {
+                        'aria2c': [
+                            '-x', '8', '-s', '8', '-k', '1M', '-c',
+                            '--file-allocation=none',
+                            '--max-tries=10', '--retry-wait=5',
+                            '--connect-timeout=30', '--timeout=60',
+                        ],
+                    },
+                    'hls_prefer_native': True,
+                    'concurrent_fragment_downloads': 8,
                 })
+
+            # A transient CDN/fragment failure must not abort a large batch.
+            # These options apply to yt-dlp's own downloader as well as the
+            # extraction and post-processing stages around aria2c.
+            options.update({
+                'retries': 10,
+                'fragment_retries': 10,
+                'file_access_retries': 5,
+                'extractor_retries': 5,
+                'socket_timeout': 60,
+                'continuedl': True,
+                # Avoid hitting Niconico continuously during 200+ item jobs.
+                'sleep_interval_requests': 0.25,
+                'sleep_interval': 0.5,
+                'max_sleep_interval': 1.5,
+                'retry_sleep_functions': {
+                    'http': lambda attempt: min(60, 5 * attempt),
+                    'fragment': lambda attempt: min(60, 5 * attempt),
+                    'extractor': lambda attempt: min(60, 5 * attempt),
+                },
+            })
 
             with yt_dlp.YoutubeDL(options) as ydl:
                 ydl.download(url)
@@ -1115,11 +1239,11 @@ class Giga:
         self.progress = True
         self.data = None
         self.pbar = None
-        self.current_chunk = 0
         self.aria2 = False
-        self.total_uploaded = 0
+        self.max_chunk_attempts = 8
+        self.connect_timeout = 30
+        self.read_timeout = 180
         self.session = self.requests_retry_session()
-        self.session.request = functools.partial(self.session.request, timeout=10)
 
     def bytes_to_size_str(self, bytes):
         if bytes == 0:
@@ -1199,57 +1323,88 @@ class Giga:
             self.bar.reset(total=self.size)
             # bar.refresh()
 
-        while True:
+        last_error = None
+        succeeded = False
+        for attempt in range(1, self.max_chunk_attempts + 1):
             try:
-                streamer = StreamingIterator(self.size, self.gen())
-                resp = self.session.post(f'https://{self.server}/upload_chunk.php', data=streamer, headers=headers)
-            except Exception as e:
-                print(e)
-                print('Retrying...')
-            else:
-                break
+                streamer = StreamingIterator(
+                    self.size,
+                    self.gen(chunk_no, chunk_size, self.form_data_binary),
+                )
+                resp = self.session.post(
+                    f'https://{self.server}/upload_chunk.php',
+                    data=streamer,
+                    headers=headers,
+                    timeout=(self.connect_timeout, self.read_timeout),
+                )
+                resp.raise_for_status()
+                resp_data = resp.json()
 
-        resp_data = resp.json()
-        self.current_chunk += 1
+                # GigaFile returns status=false on success.  The final chunk
+                # additionally contains the download URL.
+                if 'status' not in resp_data or resp_data['status']:
+                    raise RuntimeError(f'GigaFile rejected chunk {chunk_no + 1}/{chunks}: {resp_data}')
+            except Exception as e:
+                last_error = e
+                if attempt == self.max_chunk_attempts:
+                    break
+                wait_seconds = min(30, 2 ** (attempt - 1))
+                print(
+                    f'GigaFile chunk {chunk_no + 1}/{chunks} failed '
+                    f'(attempt {attempt}/{self.max_chunk_attempts}): {e}. '
+                    f'Retrying in {wait_seconds}s...'
+                )
+                self.modal.progress_content = (
+                    f'upload retry {attempt}/{self.max_chunk_attempts} '
+                    f'(chunk {chunk_no + 1}/{chunks})'
+                )
+                time.sleep(wait_seconds)
+            else:
+                succeeded = True
+                break
+        else:
+            # The loop only exits through break, but keep this branch explicit
+            # for defensive compatibility with future changes.
+            raise RuntimeError('GigaFile upload retry loop ended unexpectedly')
+
+        if not succeeded:
+            raise RuntimeError(
+                f'GigaFile upload failed for chunk {chunk_no + 1}/{chunks} '
+                f'after {self.max_chunk_attempts} attempts'
+            ) from last_error
 
         if 'url' in resp_data:
             self.data = resp_data
-        if 'status' not in resp_data or resp_data['status']:
-            print(resp_data)
-            self.failed = True
 
-    def gen(self):
+    def gen(self, chunk_no, chunk_file_size, payload):
         offset = 0
-        total_size = os.path.getsize(self.uri)  # chunk_sizesは各チャンクのサイズのリスト
+        total_size = os.path.getsize(self.uri)
 
-        while True:
-            if offset < self.size:
-                update_tick = 1024 * 128
-                yield self.form_data_binary[offset:offset+update_tick]
-                if self.bar:
-                    self.total_uploaded += min(update_tick, self.size - offset)
-                    percent = round(self.total_uploaded / total_size * 100, 1)
-                    uploaded_size = round((self.total_uploaded / 1048576), 2)
-                    total_size_MB = round((total_size / 1048576), 2)
-                    speed = 0 if self.bar.format_dict['rate'] == None else self.bar.format_dict['rate']
-                    speed_MB = round((speed / 1048576), 2)
-                    eta = timedelta(seconds=round((total_size - self.total_uploaded) / speed if speed and total_size else 0))
-                    self.modal.progress_content = f'{percent}% of {uploaded_size}/{total_size_MB} MiB at  {speed_MB}MiB/s  ETA {eta}'
+        while offset < len(payload):
+            update_tick = min(1024 * 128, len(payload) - offset)
+            chunk = payload[offset:offset + update_tick]
+            offset += update_tick
 
-                    self.bar.update(min(update_tick, self.size - offset))
-                    self.bar.refresh()
-                offset += update_tick
-            else:
-                if self.chunk_no != self.current_chunk:
-                    time.sleep(0.01)
-                else:
-                    time.sleep(0.1)
-                    break
+            # Multipart headers add a few bytes to every request.  Scale the
+            # wire progress back to the actual file bytes so it reaches 100.0%
+            # exactly instead of becoming stuck at a misleading 99.9%.
+            chunk_progress = chunk_file_size * offset / len(payload)
+            uploaded = min(total_size, chunk_no * self.chunk_size + chunk_progress)
+            percent = round(uploaded / total_size * 100, 1) if total_size else 100.0
+            uploaded_size = round(uploaded / 1048576, 2)
+            total_size_MB = round(total_size / 1048576, 2)
+            self.modal.progress_content = (
+                f'{percent}% of {uploaded_size}/{total_size_MB} MiB '
+                f'(chunk {chunk_no + 1})'
+            )
+            # Update before yielding.  StreamingIterator may stop requesting
+            # data as soon as Content-Length is satisfied, so code after the
+            # final yield is not guaranteed to run (the old 99.9% display).
+            yield chunk
 
     def upload(self):
         self.token = uuid.uuid1().hex
         self.pbar = None
-        self.failed = False
         assert Path(self.uri).exists()
         size = Path(self.uri).stat().st_size
         chunks = math.ceil(size / self.chunk_size)
@@ -1260,7 +1415,15 @@ class Giga:
             for i in range(self.thread_num):
                 self.pbar.append(tqdm(total=size, unit='B', unit_scale=True, leave=False, unit_divisor=1024, ncols=100, position=i))
 
-        self.server = re.search(r'var server = "(.+?)"', self.session.get('https://gigafile.nu/').text)[1]
+        top_response = self.session.get(
+            'https://gigafile.nu/',
+            timeout=(self.connect_timeout, self.read_timeout),
+        )
+        top_response.raise_for_status()
+        server_match = re.search(r'var server = "(.+?)"', top_response.text)
+        if not server_match:
+            raise RuntimeError('GigaFile upload server was not found in the top page')
+        self.server = server_match[1]
 
         self.upload_chunk(0, chunks)
 
@@ -1268,11 +1431,9 @@ class Giga:
             futures = {ex.submit(self.upload_chunk, i, chunks): i for i in range(1, chunks)}
             try:
                 for future in concurrent.futures.as_completed(futures):
-                    if self.failed:
-                        print('Failed!')
-                        for future in futures:
-                            future.cancel()
-                        return
+                    # Retrieving the result is essential; otherwise worker
+                    # exceptions are silently discarded and no URL is sent.
+                    future.result()
             except KeyboardInterrupt:
                 print('\nUser cancelled the operation.')
                 for future in futures:
@@ -1283,8 +1444,8 @@ class Giga:
             for bar in self.pbar:
                 bar.close()
         print('')
-        if 'url' not in self.data:
-            print('Something went wrong. Upload failed.', self.data)
+        if not self.data or 'url' not in self.data:
+            raise RuntimeError(f'GigaFile upload completed without a download URL: {self.data}')
         return self
 
     def get_download_page(self):
