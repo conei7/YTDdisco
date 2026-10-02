@@ -35,7 +35,11 @@ from bs4 import BeautifulSoup
 import tempfile
 
 
-if len(sys.argv) > 3:
+if os.environ.get('DISCORD_BOT_TOKEN'):
+    TOKEN = os.environ['DISCORD_BOT_TOKEN']
+    GUILD_ID = int(os.environ['DISCORD_GUILD_ID'])
+    authorized_list = [int(x) for x in os.environ.get('DISCORD_AUTHORIZED_USERS', '').split(',') if x]
+elif len(sys.argv) > 3:
     # 第一引数: Discordボットのトークン
     TOKEN = sys.argv[1]
     # 第二引数: サーバー(GUILD)のID（数値）

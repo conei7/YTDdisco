@@ -1,5 +1,12 @@
 # YTDdisco
 
+## Managed startup
+
+AutoMonitor can pass `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, and
+`DISCORD_AUTHORIZED_USERS` (comma-separated user IDs) through the environment.
+The existing command-line and `YTDdisco.config` startup methods remain supported.
+`requirements.txt` includes the bot's imports as well as the download dependencies.
+
 ## Required download dependencies
 
 Install the current yt-dlp default dependencies before starting the bot:
