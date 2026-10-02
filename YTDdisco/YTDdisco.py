@@ -33,6 +33,7 @@ from os import rename
 from subprocess import run
 from bs4 import BeautifulSoup
 import tempfile
+import json
 
 
 if os.environ.get('DISCORD_BOT_TOKEN'):
@@ -1522,9 +1523,18 @@ class Giga:
 
 @bot.event
 async def on_ready():
-    main = Main(bot)
-    await bot.add_cog(main)
+    main = bot.get_cog('Main')
+    if main is None:
+        main = Main(bot)
+        await bot.add_cog(main)
     await main.start_queue_processor()
     await main.bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+    if os.environ.get('SBC_READY_FILE'):
+        Path(os.environ['SBC_READY_FILE']).write_text(json.dumps({'id': bot.user.id}))
+
+@bot.event
+async def on_disconnect():
+    if os.environ.get('SBC_READY_FILE'):
+        Path(os.environ['SBC_READY_FILE']).unlink(missing_ok=True)
 
 bot.run(TOKEN)
